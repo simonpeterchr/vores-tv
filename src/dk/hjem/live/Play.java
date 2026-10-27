@@ -10,7 +10,10 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 
 /** ExoPlayer sat op til hurtig kanalskift: lille startbuffer, udbyder-venlig HTTP. */
 final class Play {
-    static ExoPlayer create(Context c) {
+    static ExoPlayer create(Context c) { return create(c, true); }
+
+    /** focus=false: lydløs forhåndsvisning, der ikke stopper radioen eller andre apps. */
+    static ExoPlayer create(Context c, boolean focus) {
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
                 .setUserAgent(Http.UA).setAllowCrossProtocolRedirects(true)
                 .setConnectTimeoutMs(10_000).setReadTimeoutMs(15_000);
@@ -22,7 +25,7 @@ final class Play {
                 // Overtag lyden, så Hjems radio (og andre apps) stopper, når vi begynder at spille
                 .setAudioAttributes(new androidx.media3.common.AudioAttributes.Builder()
                         .setUsage(androidx.media3.common.C.USAGE_MEDIA)
-                        .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
+                        .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE).build(), focus)
                 .build();
     }
 

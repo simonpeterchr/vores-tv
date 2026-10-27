@@ -43,7 +43,7 @@ final class Feed {
                 if (m.find()) { // PPV: kampen står i kanalnavnet
                     long t;
                     try { t = Search.EVENT_FMT.parse(m.group(1) + " " + m.group(2)).getTime(); } catch (Exception e) { continue; }
-                    if (t < from || t > until) continue;
+                    if (t + 2 * 3600_000L < now || t > until) continue; // slut (antaget 2 timer) eller ikke i dag
                     String name = ch.name.substring(0, m.start()).trim();
                     if (!seen.add(name.toLowerCase(Locale.ROOT))) continue;
                     Search.Hit h = new Search.Hit();

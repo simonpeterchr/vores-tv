@@ -24,16 +24,23 @@ public class HomeActivity extends Activity {
     private Px px;
     private FrameLayout root;
     private Ui.TopBar top;
-    private ImageView backdrop;
+    private FrameLayout previewBox;
+    private ImageView previewLogo;
+    private android.view.TextureView video;
+    private Ui.Bar heroBar;
+    private TextView heroStart, heroEnd;
+    private androidx.media3.exoplayer.ExoPlayer preview;
+    private Catalog.Ch heroCh, previewing;
+    private final Runnable startPreview = this::startPreview;
     private TextView kicker, title, meta, plot;
     private LinearLayout page, buttons;
-    private Vod.Item hero;
+    private Search.Hit heroEvent;
     private boolean firstFocusDone;
-    private String heroBackdropFor, shown = "";
+    private String shown = "";
     private final Handler h = new Handler(Looper.getMainLooper());
     private final Runnable rebuild = this::rebuild;
     private final Runnable onData = () -> { h.removeCallbacks(rebuild); h.postDelayed(rebuild, 200); };
-    private final Runnable tick = new Runnable() { @Override public void run() { top.clock.setText(Fmt.clock()); h.postDelayed(this, 30_000); } };
+    private final Runnable tick = new Runnable() { @Override public void run() { top.clock.setText(Fmt.clock()); if (heroCh != null) setLive(heroCh); h.postDelayed(this, 30_000); } };
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -57,42 +64,60 @@ public class HomeActivity extends Activity {
         page.setClipChildren(false);
         sv.addView(page);
 
+        // Live-forside: lille lydløs live-video + det der kører, "Se nu" og "Guide"
         FrameLayout heroBox = new FrameLayout(this);
-        backdrop = new ImageView(this);
-        backdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        backdrop.setCropToPadding(true);
-        heroBox.addView(backdrop, new FrameLayout.LayoutParams(-1, -1));
-        View g1 = new View(this);
-        g1.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{0xD90B0B0D, 0x000B0B0D}));
-        heroBox.addView(g1, new FrameLayout.LayoutParams(px.p(1150), -1));
-        View g2 = new View(this);
-        g2.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, new int[]{0xFF0B0B0D, 0x000B0B0D}));
-        heroBox.addView(g2, new FrameLayout.LayoutParams(-1, px.p(420), android.view.Gravity.BOTTOM));
+        heroBox.setClipChildren(false);
+        heroBox.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0xFF17171C, 0xFF0B0B0D}));
+        previewBox = new FrameLayout(this);
+        previewBox.setBackground(Ui.round(0xFF1C1C21, px.p(24)));
+        previewBox.setClipToOutline(true);
+        previewLogo = new ImageView(this);
+        previewLogo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        previewLogo.setPadding(px.p(220), px.p(120), px.p(220), px.p(120));
+        previewBox.addView(previewLogo, new FrameLayout.LayoutParams(-1, -1));
+        video = new android.view.TextureView(this);
+        video.setAlpha(0f);
+        previewBox.addView(video, new FrameLayout.LayoutParams(-1, -1));
+        TextView liveBadge = Ui.badge(this, px, "LIVE", true);
+        FrameLayout.LayoutParams lb = new FrameLayout.LayoutParams(-2, -2, android.view.Gravity.BOTTOM | android.view.Gravity.START);
+        lb.leftMargin = px.p(24); lb.bottomMargin = px.p(20);
+        previewBox.addView(liveBadge, lb);
+        heroBox.addView(previewBox, Ui.at(px.p(96), px.p(150), px.p(704), px.p(396)));
         LinearLayout ht = new LinearLayout(this);
         ht.setOrientation(LinearLayout.VERTICAL);
         ht.setClipChildren(false);
         kicker = px.t(18, 600, Theme.white(0.65f));
         kicker.setLetterSpacing(0.12f);
         ht.addView(kicker);
-        title = px.t(87, 700, 0xFFFFFFFF);
-        title.setLetterSpacing(-0.035f);
+        title = px.t(60, 700, 0xFFFFFFFF);
+        title.setLetterSpacing(-0.03f);
         title.setSingleLine(false);
         title.setMaxLines(2);
         title.setLineSpacing(0, 0.95f);
-        ht.addView(title, lp(-2, 18));
-        meta = px.t(22.5f, 400, Theme.white(0.75f));
-        ht.addView(meta, lp(-2, 16));
-        plot = px.t(24, 400, Theme.white(0.8f));
+        ht.addView(title, lp(-1, 16));
+        LinearLayout tr = new LinearLayout(this);
+        tr.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        heroStart = px.t(21, 500, Theme.white(0.75f));
+        tr.addView(heroStart);
+        heroBar = new Ui.Bar(this, Theme.white(0.2f), 0xFFFFFFFF);
+        LinearLayout.LayoutParams hb = new LinearLayout.LayoutParams(px.p(320), px.p(6));
+        hb.leftMargin = px.p(18); hb.rightMargin = px.p(18);
+        tr.addView(heroBar, hb);
+        heroEnd = px.t(21, 500, Theme.white(0.75f));
+        tr.addView(heroEnd);
+        ht.addView(tr, lp(-2, 20));
+        meta = px.t(21, 400, Theme.white(0.55f));
+        ht.addView(meta, lp(-1, 14));
+        plot = px.t(22, 400, Theme.white(0.7f));
         plot.setSingleLine(false);
         plot.setMaxLines(2);
-        plot.setLineSpacing(px.p(8), 1f);
-        ht.addView(plot, lp(px.p(800), 18));
+        plot.setLineSpacing(px.p(6), 1f);
+        ht.addView(plot, lp(-1, 14));
         buttons = new LinearLayout(this);
         buttons.setClipChildren(false);
-        ht.addView(buttons, lp(-2, 30));
-        heroBox.addView(ht, Ui.at(px.p(96), px.p(190), px.p(1150), -2));
-        heroBox.setClipChildren(false);
-        page.addView(heroBox, new LinearLayout.LayoutParams(-1, px.p(760)));
+        ht.addView(buttons, lp(-2, 26));
+        heroBox.addView(ht, Ui.at(px.p(848), px.p(158), px.p(976), -2));
+        page.addView(heroBox, new LinearLayout.LayoutParams(-1, px.p(600)));
         root.addView(sv, new FrameLayout.LayoutParams(-1, -1));
 
         View topShade = new View(this);
@@ -119,8 +144,16 @@ public class HomeActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         Catalog.listeners.add(onData);
+        preview = Play.create(this, false);
+        preview.setVolume(0f);
+        preview.setVideoTextureView(video);
+        preview.addListener(new androidx.media3.common.Player.Listener() {
+            @Override public void onRenderedFirstFrame() { video.animate().alpha(1f).setDuration(300).start(); }
+        });
+        previewing = null;
         shown = "";
         rebuild();
+        h.postDelayed(startPreview, 800);
         h.post(tick);
     }
 
@@ -128,6 +161,10 @@ public class HomeActivity extends Activity {
         super.onPause();
         Catalog.listeners.remove(onData);
         h.removeCallbacks(tick);
+        h.removeCallbacks(startPreview);
+        if (preview != null) { preview.release(); preview = null; }
+        previewing = null;
+        video.setAlpha(0f);
     }
 
     private void rebuild() {
@@ -148,8 +185,12 @@ public class HomeActivity extends Activity {
         String keepTag = keep != null && keep.getTag(0x7f0a0001) != null ? (String) keep.getTag(0x7f0a0001) : null;
 
         // forside: nyeste film med plakat, ellers første
-        Vod.Item pick = Feed.hero(this);
-        if (pick != null && (hero == null || !hero.id.equals(pick.id))) setHero(pick);
+        Catalog.Ch pick = null;
+        long tNow = System.currentTimeMillis();
+        for (Search.Hit x : sport) if (x.start <= tNow && x.stop > tNow) { pick = Catalog.byId.get(x.chId); if (pick != null) { heroEvent = x; break; } }
+        if (pick == null) { heroEvent = null; for (Integer id : Catalog.history(this)) { pick = Catalog.byId.get(id); if (pick != null) break; } }
+        if (pick == null && !favs.isEmpty()) pick = favs.get(0);
+        if (pick != null) setLive(pick);
 
         while (page.getChildCount() > 1) page.removeViewAt(1);
         View restore = null;
@@ -254,52 +295,50 @@ public class HomeActivity extends Activity {
         r.addView(c, l);
     }
 
-    private void setHero(final Vod.Item it) {
-        hero = it;
-        Vod.Cat k = Vod.categories(Vod.MOVIE).get(it.cat);
-        kicker.setText("NY FILM");
-        title.setText(it.name);
-        title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, px.p(it.name.length() > 22 ? 66 : 87));
-        meta.setText((it.year != null ? it.year : "") + (it.rating != null && !it.rating.isEmpty() && !it.rating.equals("0") ? "   ★ " + it.rating : ""));
-        plot.setText("");
-        Img.load(backdrop, it.poster, px.p(1000));
-        buttons.removeAllViews();
-        TextView play = Ui.pill(this, px, "▶  Afspil");
-        play.setOnClickListener(v -> startActivity(new Intent(this, VodPlayerActivity.class).putExtra("kind", Vod.MOVIE)
-                .putExtra("ids", new String[]{it.id}).putExtra("titles", new String[]{it.name}).putExtra("subs", new String[]{meta.getText().toString()})
-                .putExtra("exts", new String[]{it.ext}).putExtra("poster", it.poster).putExtra("resume", true)));
-        buttons.addView(play);
-        TextView more = Ui.pill(this, px, "Detaljer");
-        more.setOnClickListener(v -> open(it));
-        LinearLayout.LayoutParams ml = new LinearLayout.LayoutParams(-2, -2);
-        ml.leftMargin = px.p(18);
-        buttons.addView(more, ml);
-        upd = null;
-        updatePill();
-        if (it.id.equals(heroBackdropFor)) return;
-        heroBackdropFor = it.id;
-        final Cred cr = Cred.load(this);
-        new Thread(() -> {
-            try {
-                JSONObject info = new JSONObject(new Xtream(cr).get("get_vod_info", "&vod_id=" + it.id)).optJSONObject("info");
-                if (info == null) return;
-                JSONArray bd = info.optJSONArray("backdrop_path");
-                final String back = bd != null && bd.length() > 0 ? bd.optString(0) : "";
-                final String pl = info.optString("plot", "");
-                final String genre = info.optString("genre", "").split(",")[0].trim();
-                h.post(() -> {
-                    if (hero != it) return;
-                    if (!back.isEmpty()) Img.load(backdrop, back, px.p(1920));
-                    plot.setText(pl);
-                    if (!genre.isEmpty()) meta.setText(meta.getText() + "   ·   " + genre);
-                });
-            } catch (Exception ignored) { }
-        }, "hero").start();
+    /** Live-forsiden: kanal, hvad der kører (eller kampen), fremdrift og knapper. */
+    private void setLive(final Catalog.Ch ch) {
+        boolean changed = heroCh == null || heroCh.id != ch.id;
+        heroCh = ch;
+        Epg.want(this, ch.id);
+        Img.load(previewLogo, ch.logo, px.p(270));
+        Catalog.Cat k = Catalog.cats.get(ch.cat);
+        Xtream.Prog n = Epg.now(ch.id), x = Epg.next(ch.id);
+        long t = System.currentTimeMillis();
+        String ttl = heroEvent != null ? heroEvent.name : n != null ? n.title : ch.name;
+        long st = heroEvent != null ? heroEvent.start : n != null ? n.start : 0, en = heroEvent != null ? heroEvent.stop : n != null ? n.stop : 0;
+        kicker.setText(("LIVE · " + (heroEvent != null && k != null ? k.name : ch.name)).toUpperCase(Fmt.DA));
+        title.setText(ttl);
+        heroStart.setText(st > 0 ? Fmt.hm(st) : "");
+        heroEnd.setText(en > 0 ? Fmt.hm(en) : "");
+        heroBar.setVisibility(st > 0 ? View.VISIBLE : View.INVISIBLE);
+        heroBar.set(st > 0 ? (t - st) / (float) Math.max(1, en - st) : 0);
+        meta.setText(heroEvent != null ? "Kamp i dag" : x != null ? "Derefter " + Fmt.hm(x.start) + "  " + x.title : k != null ? k.name : "");
+        plot.setText(heroEvent == null && n != null && n.desc != null ? n.desc : "");
+        if (changed || buttons.getChildCount() == 0) {
+            buttons.removeAllViews();
+            TextView watch = Ui.pill(this, px, "▶  Se nu");
+            watch.setOnClickListener(v -> playChannel(ch.id));
+            buttons.addView(watch);
+            TextView guide = Ui.pill(this, px, "Guide");
+            guide.setOnClickListener(v -> startActivity(new Intent(this, LiveActivity.class).putExtra("catName", k != null ? k.name : null)));
+            LinearLayout.LayoutParams gl = new LinearLayout.LayoutParams(-2, -2);
+            gl.leftMargin = px.p(18);
+            buttons.addView(guide, gl);
+            upd = null;
+            updatePill();
+        }
+        if (changed) { previewing = null; video.setAlpha(0f); h.removeCallbacks(startPreview); h.postDelayed(startPreview, 800); }
+    }
+
+    private void startPreview() {
+        if (preview == null || heroCh == null || (previewing != null && previewing.id == heroCh.id)) return;
+        previewing = heroCh;
+        Play.live(preview, Cred.load(this), heroCh, false);
     }
 
     private TextView upd;
 
-    /** "Opdatér til 0.21" ved siden af Afspil/Detaljer, når GitHub har en nyere version. */
+    /** "Opdatér til x.y" ved siden af knapperne, når GitHub har en nyere version. */
     private void updatePill() {
         if (upd != null) { buttons.removeView(upd); upd = null; }
         if (!Updater.available(this) && Updater.state == null) return;
