@@ -195,7 +195,7 @@ public class PlayerActivity extends Activity {
             @Override public void onVideoSizeChanged(VideoSize v) { fit(v); }
             @Override public void onPlayerError(PlaybackException e) {
                 if (!triedHls && playing != null) { triedHls = true; Play.live(player, Cred.load(PlayerActivity.this), playing, true); return; }
-                infoMsg.setText("Kanalen svarer ikke lige nu. Prøv en anden, eller vent lidt og tryk OK.");
+                infoMsg.setText(Http.playback(e) + " Tryk OK for at prøve igen.");
                 infoMsg.setVisibility(View.VISIBLE);
                 showInfo(15_000);
             }

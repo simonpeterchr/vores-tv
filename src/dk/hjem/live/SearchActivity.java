@@ -141,7 +141,8 @@ public class SearchActivity extends Activity {
         boolean inResults = keep != null && keep.getTag(0x7f0a0002) != null;
         String keepTag = inResults ? (String) keep.getTag(0x7f0a0002) : null;
         results.removeAllViews();
-        if (qq.isEmpty()) { status.setText(Search.indexing() ? "Indlæser film og serier til søgning …" : ""); return; }
+        if (qq.isEmpty()) { status.setText(Search.indexing() ? (Search.progress != null ? Search.progress : "Indlæser film og serier til søgning …") : ""); return; }
+        Search.index(this); // prøv igen, hvis en tidligere indlæsning fejlede
         int n = 0;
         View restore = null;
         boolean live = filter == 0 || filter == 1, mov = filter == 0 || filter == 2, ser = filter == 0 || filter == 3;
@@ -160,7 +161,7 @@ public class SearchActivity extends Activity {
         }
         if (mov) { List<Search.Hit> m = Search.vod(this, Vod.MOVIE, qq, max); n += m.size(); restore = pick(restore, section("Film", m, false, keepTag), keepTag); }
         if (ser) { List<Search.Hit> s = Search.vod(this, Vod.SERIES, qq, max); n += s.size(); restore = pick(restore, section("Serier", s, false, keepTag), keepTag); }
-        String extra = Search.indexing() && (mov || ser) ? "  ·  indlæser stadig film og serier …" : Search.epgPending.get() > 0 && live ? "  ·  henter programguide …" : "";
+        String extra = Search.indexing() && (mov || ser) ? "  ·  " + (Search.progress != null ? Search.progress : "indlæser film og serier …") : Search.epgPending.get() > 0 && live ? "  ·  henter programguide …" : "";
         status.setText((n == 0 ? "Ingen resultater" : n + " resultater") + extra);
         if (restore != null) restore.requestFocus();
     }

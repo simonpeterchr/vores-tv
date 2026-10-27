@@ -164,18 +164,28 @@ final class Search {
     }
 
     // ---- film og serier (hele kataloget, streamet så hukommelsen holder) ----
+    static volatile String progress; // fx "Indlæser serier … 40 %"
+
     static void index(final Context ctx) {
         if (indexing || (movies != null && series != null)) return;
         indexing = true;
         final Context c = ctx.getApplicationContext();
         new Thread(() -> {
             try {
-                if (movies == null) movies = load(c, Vod.MOVIE);
-                Catalog.changed();
-                if (series == null) series = load(c, Vod.SERIES);
-                Catalog.changed();
-            } catch (Exception ignored) {
-            } finally { indexing = false; }
+                for (String kind : new String[]{Vod.SERIES, Vod.MOVIE}) { // serier først: færre og hurtigere
+                    if ((Vod.MOVIE.equals(kind) ? movies : series) != null) continue;
+                    List<String[]> l;
+                    try { l = load(c, kind); }
+                    catch (Exception e) {
+                        android.util.Log.w("VoresTV", "søgeindeks " + kind + " samlet fejlede (" + e.getClass().getSimpleName() + "), henter gruppe for gruppe");
+                        l = crawl(c, kind);
+                    }
+                    if (Vod.MOVIE.equals(kind)) movies = l; else series = l;
+                    Catalog.changed();
+                }
+            } catch (Exception e) {
+                android.util.Log.w("VoresTV", "søgeindeks fejlede: " + e.getClass().getSimpleName());
+            } finally { indexing = false; progress = null; Catalog.changed(); }
         }, "search-index").start();
     }
 
@@ -183,12 +193,52 @@ final class Search {
 
     private static List<String[]> load(Context c, String kind) throws Exception {
         File f = new File(c.getFilesDir(), "index_" + kind + ".tsv");
-        if (f.exists() && System.currentTimeMillis() - f.lastModified() < 24 * 3600_000L) return readTsv(f);
+        if (f.exists() && f.length() > 0 && System.currentTimeMillis() - f.lastModified() < 24 * 3600_000L) return readTsv(f);
+        progress = "Indlæser " + (Vod.MOVIE.equals(kind) ? "film" : "serier") + " til søgning …";
+        Catalog.changed();
         Xtream x = new Xtream(Cred.load(c));
-        HttpURLConnection con = (HttpURLConnection) new URL(x.api(Vod.MOVIE.equals(kind) ? "get_vod_streams" : "get_series", null)).openConnection();
+        List<String[]> out = fetch(x.api(Vod.MOVIE.equals(kind) ? "get_vod_streams" : "get_series", null), 180_000);
+        if (out.isEmpty()) throw new java.io.IOException("tomt katalog");
+        writeTsv(f, out);
+        return out;
+    }
+
+    /** Plan B: hent kataloget gruppe for gruppe (mindre svar), og gør det søgbart undervejs. */
+    private static List<String[]> crawl(Context c, String kind) throws Exception {
+        Xtream x = new Xtream(Cred.load(c));
+        org.json.JSONArray cats = new org.json.JSONArray(x.get(Vod.MOVIE.equals(kind) ? "get_vod_categories" : "get_series_categories", null));
+        final List<String[]> all = java.util.Collections.synchronizedList(new ArrayList<>());
+        final AtomicInteger done = new AtomicInteger();
+        final int total = cats.length();
+        String word = Vod.MOVIE.equals(kind) ? "film" : "serier";
+        ExecutorService p = Executors.newFixedThreadPool(3);
+        for (int i = 0; i < total; i++) {
+            final String id = cats.getJSONObject(i).optString("category_id");
+            p.execute(() -> {
+                try { all.addAll(fetch(x.api(Vod.MOVIE.equals(kind) ? "get_vod_streams" : "get_series", "&category_id=" + Xtream.enc(id)), 60_000)); }
+                catch (Exception ignored) { }
+                int d = done.incrementAndGet();
+                progress = "Indlæser " + word + " til søgning … " + (100 * d / Math.max(1, total)) + " %";
+                if (d % 10 == 0) { // søgbart undervejs
+                    List<String[]> snap = new ArrayList<>(all);
+                    if (Vod.MOVIE.equals(kind)) movies = snap; else series = snap;
+                    Catalog.changed();
+                }
+            });
+        }
+        p.shutdown();
+        p.awaitTermination(30, java.util.concurrent.TimeUnit.MINUTES);
+        List<String[]> out = new ArrayList<>(all);
+        if (!out.isEmpty()) writeTsv(new File(c.getFilesDir(), "index_" + kind + ".tsv"), out);
+        return out;
+    }
+
+    private static List<String[]> fetch(String url, int readTimeout) throws Exception {
+        HttpURLConnection con = (HttpURLConnection) new URL(url).openConnection();
         con.setRequestProperty("User-Agent", Http.UA);
         con.setConnectTimeout(15000);
-        con.setReadTimeout(60000);
+        con.setReadTimeout(readTimeout);
+        if (con.getResponseCode() != 200) { con.disconnect(); throw new java.io.IOException("HTTP " + con.getResponseCode()); }
         List<String[]> out = new ArrayList<>();
         try (JsonReader r = new JsonReader(new InputStreamReader(con.getInputStream(), StandardCharsets.UTF_8))) {
             r.beginArray();
@@ -214,13 +264,16 @@ final class Search {
             }
             r.endArray();
         } finally { con.disconnect(); }
+        return out;
+    }
+
+    private static void writeTsv(File f, List<String[]> out) throws Exception {
         try (Writer w = new OutputStreamWriter(new FileOutputStream(f), StandardCharsets.UTF_8)) {
             for (String[] e : out) {
                 for (int i = 0; i < e.length; i++) { if (i > 0) w.write('\t'); w.write(e[i] == null ? "" : e[i].replace('\t', ' ').replace('\n', ' ')); }
                 w.write('\n');
             }
         }
-        return out;
     }
 
     private static List<String[]> readTsv(File f) throws Exception {
@@ -233,9 +286,17 @@ final class Search {
     }
 
     static List<Hit> vod(Context c, String kind, List<String[]> q, int max) {
-        List<String[]> src = Vod.MOVIE.equals(kind) ? movies : series;
+        List<String[]> src = new ArrayList<>();
+        List<String[]> idx = Vod.MOVIE.equals(kind) ? movies : series;
+        if (idx != null) src.addAll(idx);
+        // plus det, Film/Serier-siderne allerede har hentet (virker også før/uden det samlede katalog)
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        for (String[] e : src) ids.add(e[0]);
+        for (Map.Entry<String, List<Vod.Item>> en : Vod.items.entrySet()) {
+            if (!en.getKey().startsWith(kind + "|")) continue;
+            for (Vod.Item it : en.getValue()) if (ids.add(it.id)) src.add(new String[]{it.id, it.name, it.poster, it.cat, it.year, it.ext});
+        }
         List<Hit> first = new ArrayList<>(), rest = new ArrayList<>();
-        if (src == null) return first;
         java.util.Set<String> shown = new java.util.HashSet<>(Vod.shownGroups(c, kind));
         for (String[] e : src) {
             if (!match(e[1], q)) continue;

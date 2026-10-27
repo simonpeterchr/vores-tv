@@ -10,6 +10,23 @@ import java.nio.charset.StandardCharsets;
 /** Minimal HTTP GET med manuel redirect-håndtering (også på tværs af værter). */
 final class Http {
     /** Brugervenlig fejltekst uden serveradresser eller IP'er. */
+    /** Afspilningsfejl i klar tale (logger server og svar uden loginoplysninger). */
+    static String playback(Throwable t) {
+        for (Throwable c = t; c != null; c = c.getCause()) {
+            if (c instanceof androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
+                androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException r = (androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) c;
+                java.util.List<String> sv = r.headerFields.get("Server");
+                android.util.Log.w("VoresTV", "afspilning " + r.responseCode + " fra " + r.dataSpec.uri.getHost() + " server=" + sv + " cf=" + r.headerFields.containsKey("CF-RAY"));
+                if (r.responseCode == 403 || r.responseCode == 458 || r.responseCode == 509)
+                    return "Udbyderen afviste afspilningen (" + r.responseCode + "). Det sker typisk, når jeres login allerede bruges på et andet tv eller i TiviMate. Stop det, og prøv igen.";
+                if (r.responseCode == 404) return "Udbyderen har ikke filen lige nu (404). Prøv en anden version af titlen.";
+                return "Udbyderen svarede med fejl " + r.responseCode + ".";
+            }
+            if (c instanceof java.net.SocketTimeoutException || c instanceof java.net.ConnectException) return "Udbyderen svarer ikke lige nu – prøv igen om lidt.";
+        }
+        return "Kan ikke afspille lige nu.";
+    }
+
     static String friendly(Exception e) {
         if (e instanceof java.net.SocketTimeoutException) return "Udbyderen svarer ikke lige nu – prøv igen om lidt.";
         if (e instanceof java.net.UnknownHostException) return "Ingen forbindelse til internettet eller udbyderen.";

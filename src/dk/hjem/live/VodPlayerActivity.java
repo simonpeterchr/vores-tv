@@ -168,7 +168,7 @@ public class VodPlayerActivity extends Activity {
             }
             @Override public void onIsPlayingChanged(boolean p) { update(); if (!p) show(0); else show(3_500); }
             @Override public void onPlayerError(PlaybackException e) {
-                state.setText("Kan ikke afspille: " + e.getErrorCodeName());
+                state.setText(Http.playback(e));
                 show(0);
             }
         });
