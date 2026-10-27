@@ -39,6 +39,14 @@ public class HomeActivity extends Activity {
     private TextView alertTitle, alertText;
 
     private void bindAlert() {
+        if (Health.switched != null && Health.problem == null) {
+            alert.setVisibility(View.VISIBLE);
+            alertTitle.setText("Skiftede til reserve-adresse");
+            alertText.setText("Hovedadressen svarede ikke, så Vores TV bruger nu udbyderens reserve-adresse. Alt virker som før.");
+            final String shownMsg = Health.switched;
+            h.postDelayed(() -> { if (shownMsg.equals(Health.switched)) { Health.switched = null; bindAlert(); } }, 20_000);
+            return;
+        }
         String p = Health.problem;
         alert.setVisibility(p == null ? View.GONE : View.VISIBLE);
         if (p == null) return;

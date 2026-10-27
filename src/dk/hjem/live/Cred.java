@@ -7,6 +7,8 @@ import android.net.Uri;
 /** Login til IPTV-udbyderen (Xtream Codes). Gemmes kun lokalt på enheden. */
 final class Cred {
     String server = "", user = "", pass = "";
+    /** Reserve-adresser fra udbyderen (samme login), prøves når hovedadressen ikke svarer. */
+    java.util.List<String> alts = new java.util.ArrayList<>();
 
     boolean ok() { return !server.isEmpty() && !user.isEmpty() && !pass.isEmpty(); }
 
@@ -16,12 +18,14 @@ final class Cred {
         r.server = p.getString("server", "");
         r.user = p.getString("user", "");
         r.pass = p.getString("pass", "");
+        for (String s : p.getString("alts", "").split("\n")) if (!s.trim().isEmpty()) r.alts.add(s.trim());
         return r;
     }
 
     void save(Context c) {
         c.getSharedPreferences("cred", Context.MODE_PRIVATE).edit()
-                .putString("server", server).putString("user", user).putString("pass", pass).apply();
+                .putString("server", server).putString("user", user).putString("pass", pass)
+                .putString("alts", android.text.TextUtils.join("\n", alts)).apply();
     }
 
     static void clear(Context c) {
@@ -49,4 +53,20 @@ final class Cred {
     }
 
     private static String nz(String s) { return s == null ? "" : s; }
+
+    /** Finder alle adresser i fri tekst, fx "Alternative URL 1 = http://a.xyz || Alternative URL 2 = http://b.xyz". */
+    static java.util.List<String> parseAlts(String text) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        if (text == null) return out;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?i)\\bhttps?://[a-z0-9.-]+(:\\d+)?").matcher(text);
+        while (m.find()) { String u = m.group().toLowerCase(java.util.Locale.ROOT); if (!out.contains(u)) out.add(u); }
+        return out;
+    }
+
+    /** Samme login på en anden adresse. */
+    Cred withServer(String s) {
+        Cred c = new Cred();
+        c.server = s; c.user = user; c.pass = pass;
+        return c;
+    }
 }

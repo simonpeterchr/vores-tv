@@ -80,11 +80,23 @@ final class Web {
                 if (path.equals("/login")) {
                     Cred cr = Cred.parse(form.get("server"), form.get("user"), form.get("pass"));
                     String err = cr.ok() ? new Xtream(cr).check() : "Udfyld server, brugernavn og kode – eller indsæt ét M3U-link.";
+                    cr.alts = Cred.parseAlts(form.get("alts"));
+                    cr.alts.remove(cr.server);
+                    if (err != null) outer: for (String alt : new java.util.ArrayList<>(cr.alts)) for (String cand : Health.candidates(alt, cr.server)) { // hovedadressen svarer ikke: prøv reserverne
+                        if (new Xtream(cr.withServer(cand)).check() == null) { cr.alts.remove(alt); cr.alts.add(cr.server); cr.server = cand; err = null; break outer; }
+                    }
                     if (err == null) {
                         cr.save(c);
                         Catalog.load(c, true);
                         flash = "✅ Logget ind. Vælg nu jeres kanaler herunder.";
                     } else flash = "⚠️ " + err;
+                } else if (path.equals("/alts")) {
+                    Cred cr = Cred.load(c);
+                    cr.alts = Cred.parseAlts(form.get("alts"));
+                    cr.alts.remove(cr.server);
+                    cr.save(c);
+                    flash = cr.alts.isEmpty() ? "Reserve-adresser fjernet." : "✅ " + cr.alts.size() + " reserve-adresse(r) gemt. Appen skifter selv, hvis hovedadressen ikke svarer.";
+                    Health.check(c, true);
                 } else if (path.equals("/logout")) {
                     Cred.clear(c);
                     Catalog.changed();
@@ -137,7 +149,7 @@ final class Web {
             + ":root{color-scheme:dark}body{margin:0;background:#0a0a0c;color:#fff;font:16px/1.4 -apple-system,system-ui,sans-serif}"
             + "main{max-width:600px;margin:0 auto;padding:28px 16px 64px}h1{font-size:28px;margin:0 0 4px}h2{font-size:18px;margin:28px 0 10px}"
             + "p{color:#aaa;margin:0 0 18px}.msg{padding:12px 14px;border-radius:12px;background:#1d2a20;margin-bottom:18px}"
-            + "label{display:block;font-weight:600;margin:14px 0 6px}input,select{width:100%;box-sizing:border-box;font:inherit;padding:12px;border-radius:10px;"
+            + "label{display:block;font-weight:600;margin:14px 0 6px}input,select,textarea{width:100%;box-sizing:border-box;font:inherit;padding:12px;border-radius:10px;"
             + "border:1px solid #3a3b40;background:#17181c;color:#fff}button{font:inherit;border:0;border-radius:10px;padding:10px 14px;min-height:44px;cursor:pointer}"
             + ".main{margin-top:18px;width:100%;background:#fff;color:#000;font-weight:600}.or{text-align:center;color:#777;margin:18px 0 0}"
             + "ul{list-style:none;padding:0;margin:0;border-radius:16px;overflow:hidden;background:#17181c}"
@@ -156,6 +168,7 @@ final class Web {
             + "<label for=server>Server (eller hele M3U-linket)</label><input id=server name=server inputmode=url placeholder='http://server.dk:8080' required>"
             + "<label for=user>Brugernavn</label><input id=user name=user autocapitalize=off>"
             + "<label for=pass>Kode</label><input id=pass name=pass type=password autocapitalize=off>"
+            + "<label for=alts>Reserve-adresser (valgfrit)</label><textarea id=alts name=alts rows=3 placeholder='Indsæt udbyderens tekst, fx Alternative URL 1 = http://…'></textarea>"
             + "<button class=main>Log ind</button></form>"
             + "<p class=or>Indsætter du et M3U-link (…get.php?username=…&amp;password=…), kan brugernavn og kode stå tomme.</p>"
             + "</main></body></html>";
@@ -228,7 +241,11 @@ final class Web {
             }
             if (shown == 0) h.append("<li class=empty>Ingen kanaler fundet.</li>");
         } else h.append("<li class=empty>Søg efter et navn eller vælg en gruppe.</li>");
-        h.append("</ul><form method=post action=/logout onsubmit=\"return confirm('Fjern login fra tv\\'et?')\"><button class=out>Log ud af udbyderen</button></form>");
+        Cred cur = Cred.load(c);
+        h.append("</ul><h2>Reserve-adresser</h2><p>Svarer udbyderen ikke, prøver tv'et selv disse med samme login. Indsæt bare udbyderens tekst.</p>")
+         .append("<form method=post action=/alts><textarea id=alts name=alts rows=3 style='width:100%;box-sizing:border-box;font:inherit;padding:12px;border-radius:10px;border:1px solid #3a3b40;background:#17181c;color:#fff'>")
+         .append(esc(android.text.TextUtils.join("\n", cur.alts))).append("</textarea><button class=main>Gem reserve-adresser</button></form>");
+        h.append("<form method=post action=/logout onsubmit=\"return confirm('Fjern login fra tv\\'et?')\"><button class=out>Log ud af udbyderen</button></form>");
         return h.append("</main></body></html>").toString();
     }
 }
