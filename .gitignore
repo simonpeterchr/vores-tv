@@ -1,0 +1,10 @@
+build/
+build-libs/
+jars/
+libs-src/
+*.apk
+*.keystore
+*.jks
+signing.local
+.DS_Store
+*.idsig
