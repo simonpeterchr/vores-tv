@@ -39,7 +39,7 @@ final class Xtream {
             if (!st.isEmpty() && !st.equalsIgnoreCase("Active")) return "Abonnementet står som \"" + st + "\".";
             return null;
         } catch (Exception e) {
-            return "Kunne ikke kontakte serveren (" + e.getMessage() + ").";
+            return Http.friendly(e);
         }
     }
 

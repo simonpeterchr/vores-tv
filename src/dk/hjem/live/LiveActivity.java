@@ -69,6 +69,7 @@ public class LiveActivity extends Activity {
         root.setBackgroundColor(Ui.BG);
         setContentView(root);
         cat = getSharedPreferences("live", MODE_PRIVATE).getString("cat", FAV);
+        wantCatName = getIntent().getStringExtra("catName"); // genvej: åbn en bestemt gruppe (navn)
         build();
         Web.start(this);
         Catalog.load(this, false);
@@ -209,7 +210,7 @@ public class LiveActivity extends Activity {
     }
 
     // ---- data ----
-    private String shownSetup = "";
+    private String shownSetup = "", wantCatName;
 
     private void dataChanged() {
         boolean in = Cred.load(this).ok();
@@ -222,6 +223,10 @@ public class LiveActivity extends Activity {
         shownSetup = state;
         boolean wasSetup = setup.getVisibility() == View.VISIBLE;
         if (wasSetup) setup.setVisibility(View.GONE);
+        if (wantCatName != null) {
+            for (Catalog.Cat k : Catalog.cats.values()) if (k.name.equalsIgnoreCase(wantCatName)) { cat = k.id; sel = 0; topRow = 0; break; }
+            wantCatName = null;
+        }
         buildPills();
         Catalog.Ch keep = cur();
         list = cat.equals(FAV) ? Catalog.favorites(this) : Catalog.inCategory(cat);

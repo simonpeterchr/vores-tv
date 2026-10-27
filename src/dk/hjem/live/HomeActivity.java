@@ -105,7 +105,7 @@ public class HomeActivity extends Activity {
 
     private void openTab(Intent in) {
         String k = in != null ? in.getStringExtra("open") : null;
-        if ("live".equals(k)) startActivity(new Intent(this, LiveActivity.class));
+        if ("live".equals(k)) startActivity(new Intent(this, LiveActivity.class).putExtra("catName", in.getStringExtra("cat")));
         else if ("search".equals(k)) startActivity(new Intent(this, SearchActivity.class).putExtra("q", in.getStringExtra("q")));
         else if (Vod.MOVIE.equals(k) || Vod.SERIES.equals(k)) startActivity(new Intent(this, MediaActivity.class).putExtra("kind", k));
     }

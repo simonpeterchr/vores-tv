@@ -64,7 +64,7 @@ final class Catalog {
                 error = null;
                 changed();
             } catch (Exception e) {
-                error = "Kunne ikke hente kanaler: " + e.getMessage();
+                error = Http.friendly(e);
                 changed();
             } finally {
                 synchronized (Catalog.class) { loading = false; }

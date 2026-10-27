@@ -101,9 +101,9 @@ public class SearchActivity extends Activity {
 
         Search.index(this);
         Search.warmEpg(this);
-        field.requestFocus();
         String q = getIntent().getStringExtra("q");
-        if (q != null) field.setText(q);
+        if (q != null && !q.isEmpty()) { field.setText(q); filters.getChildAt(0).requestFocus(); } // søgeord givet udefra: intet tastatur
+        else field.requestFocus();
     }
 
     @Override protected void onResume() { super.onResume(); Catalog.listeners.add(onData); }

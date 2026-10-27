@@ -43,7 +43,7 @@ final class Search {
         SYN.put("cykling", new String[]{"cykling", "tour de france", "giro", "vuelta", "cycling"});
         SYN.put("formel 1", new String[]{"formel 1", "formula 1", "f1", "grand prix"});
         SYN.put("ishockey", new String[]{"ishockey", "nhl", "metal ligaen", "hockey"});
-        SYN.put("dart", new String[]{"dart", "darts", "pdc", "premier league darts", "world matchplay", "grand slam of darts", "players championship", "world grand prix", "european championship darts", "vm i dart", "masters darts", "littler", "van gerwen"});
+        SYN.put("dart", new String[]{"darts", "pdc", "premier league darts", "world matchplay", "grand slam of darts", "players championship", "world grand prix", "european championship darts", "vm i dart", "masters darts", "littler", "van gerwen"});
         SYN.put("golf", new String[]{"golf", "pga", "dp world tour", "ryder cup"});
         SYN.put("nyheder", new String[]{"nyheder", "tv avisen", "tva", "news", "21 søndag", "deadline"});
     }
@@ -62,7 +62,7 @@ final class Search {
         if (q.isEmpty()) return alts;
         for (Map.Entry<String, String[]> e : SYN.entrySet()) {
             if (q.equals(norm(e.getKey())) || q.equals(norm(e.getKey()) + "kamp") || q.equals(norm(e.getKey()) + "kampe")) {
-                for (String s : e.getValue()) alts.add(new String[]{norm(s)});
+                for (String s : e.getValue()) alts.add(new String[]{"=" + norm(s)}); // "=" = helt ord
                 return alts;
             }
         }
@@ -75,8 +75,21 @@ final class Search {
         String t = norm(text);
         outer:
         for (String[] words : q) {
-            for (String w : words) if (!t.contains(w)) continue outer;
+            for (String w : words) if (!has(t, w)) continue outer;
             return true;
+        }
+        return false;
+    }
+
+    /** Ordet skal starte et ord i teksten ("fodbold" ≠ "…fodbolden" er ok, men "dart" ≠ "Dartmouth" for "=dart"). */
+    private static boolean has(String t, String w) {
+        boolean whole = w.startsWith("=");
+        if (whole) w = w.substring(1);
+        for (int i = t.indexOf(w); i >= 0; i = t.indexOf(w, i + 1)) {
+            boolean startOk = i == 0 || !Character.isLetterOrDigit(t.charAt(i - 1));
+            int e = i + w.length();
+            boolean endOk = !whole || e >= t.length() || !Character.isLetterOrDigit(t.charAt(e));
+            if (startOk && endOk) return true;
         }
         return false;
     }

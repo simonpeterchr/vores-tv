@@ -120,7 +120,7 @@ public class DetailActivity extends Activity {
                 final JSONObject o = new JSONObject(js);
                 h.post(() -> bind(o));
             } catch (Exception e) {
-                h.post(() -> { plot.setText("Kunne ikke hente detaljer (" + e.getMessage() + ")."); renderButtons(); });
+                h.post(() -> { plot.setText(Http.friendly(e)); renderButtons(); });
             }
         }, "detail").start();
     }

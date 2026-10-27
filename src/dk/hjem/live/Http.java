@@ -9,6 +9,16 @@ import java.nio.charset.StandardCharsets;
 
 /** Minimal HTTP GET med manuel redirect-håndtering (også på tværs af værter). */
 final class Http {
+    /** Brugervenlig fejltekst uden serveradresser eller IP'er. */
+    static String friendly(Exception e) {
+        if (e instanceof java.net.SocketTimeoutException) return "Udbyderen svarer ikke lige nu – prøv igen om lidt.";
+        if (e instanceof java.net.UnknownHostException) return "Ingen forbindelse til internettet eller udbyderen.";
+        if (e instanceof java.net.ConnectException) return "Kan ikke få forbindelse til udbyderen lige nu.";
+        String m = e.getMessage();
+        if (m != null && m.startsWith("HTTP ")) return "Udbyderen svarede med fejl " + m.substring(5).split(" ")[0] + ".";
+        return "Noget gik galt med forbindelsen til udbyderen.";
+    }
+
     // Google Fotos' korte links sender desktop-browsere til en Firebase-side; en Android-UA får et rent 302.
     static final String UA = "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36";
 
