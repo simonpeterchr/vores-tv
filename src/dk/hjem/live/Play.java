@@ -19,6 +19,10 @@ final class Play {
         return new ExoPlayer.Builder(c)
                 .setMediaSourceFactory(new DefaultMediaSourceFactory(c).setDataSourceFactory(http))
                 .setLoadControl(lc)
+                // Overtag lyden, så Hjems radio (og andre apps) stopper, når vi begynder at spille
+                .setAudioAttributes(new androidx.media3.common.AudioAttributes.Builder()
+                        .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                        .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
                 .build();
     }
 
