@@ -67,7 +67,7 @@ final class Web {
             int len = 0;
             while ((line = in.readLine()) != null && !line.isEmpty())
                 if (line.toLowerCase(Locale.ROOT).startsWith("content-length:")) len = Integer.parseInt(line.substring(15).trim());
-            char[] body = new char[Math.min(len, 8192)];
+            char[] body = new char[Math.min(len, 16384)];
             int got = 0;
             while (got < body.length) { int r = in.read(body, got, body.length - got); if (r < 0) break; got += r; }
             Map<String, String> form = parse(new String(body, 0, got));
@@ -75,6 +75,23 @@ final class Web {
             String path = full.contains("?") ? full.substring(0, full.indexOf('?')) : full;
             Map<String, String> query = parse(full.contains("?") ? full.substring(full.indexOf('?') + 1) : "");
             OutputStream out = sock.getOutputStream();
+            if ("GET".equals(req[0]) && path.equals("/hello")) { json(out, 200, Share.hello(c)); return; }
+            if ("POST".equals(req[0]) && path.equals("/receive")) {
+                // Et andet tv i huset sender sit login. Tages kun imod, hvis dette tv ikke er logget ind.
+                if (Cred.load(c).ok()) { json(out, 409, "Tv'et er allerede logget ind."); return; }
+                Cred cr = Cred.parse(form.get("server"), form.get("user"), form.get("pass"));
+                cr.alts = Cred.parseAlts(form.get("alts"));
+                cr.alts.remove(cr.server);
+                String err = cr.ok() ? new Xtream(cr).check() : "Mangler oplysninger.";
+                if (err != null) outer: for (String alt : new java.util.ArrayList<>(cr.alts)) for (String cand : Health.candidates(alt, cr.server))
+                    if (new Xtream(cr.withServer(cand)).check() == null) { cr.alts.remove(alt); cr.alts.add(cr.server); cr.server = cand; err = null; break outer; }
+                if (err != null) { json(out, 502, err); return; }
+                cr.save(c);
+                Catalog.load(c, true);
+                Catalog.changed();
+                json(out, 200, "Logget ind med login fra " + (form.get("from") != null ? form.get("from") : "et andet tv") + ".");
+                return;
+            }
             if ("POST".equals(req[0])) {
                 String back = form.containsKey("back") && form.get("back").startsWith("/") ? form.get("back") : "/";
                 if (path.equals("/login")) {
@@ -90,6 +107,10 @@ final class Web {
                         Catalog.load(c, true);
                         flash = "✅ Logget ind. Vælg nu jeres kanaler herunder.";
                     } else flash = "⚠️ " + err;
+                } else if (path.equals("/share")) {
+                    String ip = form.get("ip"), name = form.get("name");
+                    String res = ip == null ? "Intet tv valgt." : Share.send(c, ip);
+                    flash = (res.startsWith("Logget ind") ? "✅ " + (name != null ? name + ": " : "") : "⚠️ " + (name != null ? name + ": " : "")) + res;
                 } else if (path.equals("/alts")) {
                     Cred cr = Cred.load(c);
                     cr.alts = Cred.parseAlts(form.get("alts"));
@@ -119,6 +140,13 @@ final class Web {
         } catch (Exception e) {
             Log.w("HjemTV", "Webside-fejl: " + e.getMessage());
         }
+    }
+
+    private static void json(OutputStream out, int code, String body) throws Exception {
+        byte[] b = body.getBytes(StandardCharsets.UTF_8);
+        out.write(("HTTP/1.1 " + code + " X\r\nContent-Type: " + (body.startsWith("{") ? "application/json" : "text/plain") + "; charset=utf-8\r\nContent-Length: "
+                + b.length + "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+        out.write(b);
     }
 
     private static void redirect(OutputStream out, String to) throws Exception {
@@ -242,6 +270,20 @@ final class Web {
             if (shown == 0) h.append("<li class=empty>Ingen kanaler fundet.</li>");
         } else h.append("<li class=empty>Søg efter et navn eller vælg en gruppe.</li>");
         Cred cur = Cred.load(c);
+        h.append("<h2>Del login med andre tv'er</h2><p>Andre tv'er i huset med Vores TV, som ikke er logget ind, kan få dette tv's login med ét tryk.</p>");
+        if (q.containsKey("find")) {
+            List<Share.Peer> peers = Share.scan();
+            h.append("<ul>");
+            for (Share.Peer p : peers) {
+                h.append("<li><div class=n><b>").append(esc(p.name)).append("</b><small>").append(p.loggedIn ? "Allerede logget ind" : "Mangler login").append("</small></div>");
+                if (!p.loggedIn) h.append("<form method=post action=/share><input type=hidden name=ip value=\"").append(esc(p.ip)).append("\"><input type=hidden name=name value=\"")
+                        .append(esc(p.name)).append("\"><input type=hidden name=back value='/'><button class='star on'>Send login</button></form>");
+                h.append("</li>");
+            }
+            if (peers.isEmpty()) h.append("<li class=empty>Fandt ingen andre tv'er med Vores TV åben. Åbn Vores TV på det andet tv, og prøv igen.</li>");
+            h.append("</ul>");
+        }
+        h.append("<form method=get action=/ style='margin-top:12px'><input type=hidden name=find value=1><button class=main>Find tv'er i huset</button></form>");
         h.append("</ul><h2>Reserve-adresser</h2><p>Svarer udbyderen ikke, prøver tv'et selv disse med samme login. Indsæt bare udbyderens tekst.</p>")
          .append("<form method=post action=/alts><textarea id=alts name=alts rows=3 style='width:100%;box-sizing:border-box;font:inherit;padding:12px;border-radius:10px;border:1px solid #3a3b40;background:#17181c;color:#fff'>")
          .append(esc(android.text.TextUtils.join("\n", cur.alts))).append("</textarea><button class=main>Gem reserve-adresser</button></form>");

@@ -269,7 +269,7 @@ public class LiveActivity extends Activity {
         d.setSingleLine(false);
         d.setLineSpacing(px.p(10), 1f);
         d.setText(loggedIn ? (Catalog.error != null ? Catalog.error + "\nTryk OK for at prøve igen." : "Det tager et øjeblik første gang.")
-                : "Scan koden med telefonens kamera og indtast jeres IPTV-login\n– eller indsæt bare jeres M3U-link. Det gemmes kun på tv'et.");
+                : "Scan koden med telefonens kamera og indtast jeres IPTV-login\n– eller indsæt bare jeres M3U-link. Det gemmes kun på tv'et.\n\nEr et andet tv i huset logget ind? Åbn dets telefon-side og tryk \"Del login\".");
         txt.addView(d, lp(-2, -2, 24));
         TextView a = px.t(24, 500, Theme.white(0.45f));
         a.setText(Web.address());
