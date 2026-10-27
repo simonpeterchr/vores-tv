@@ -35,12 +35,29 @@ public class HomeActivity extends Activity {
     private TextView kicker, title, meta, plot;
     private LinearLayout page, buttons;
     private Search.Hit heroEvent;
+    private LinearLayout alert;
+    private TextView alertTitle, alertText;
+
+    private void bindAlert() {
+        String p = Health.problem;
+        alert.setVisibility(p == null ? View.GONE : View.VISIBLE);
+        if (p == null) return;
+        alertTitle.setText(p);
+        alertText.setText("Kanaler, film og serier kan ikke afspilles lige nu. Har udbyderen givet dig en ny adresse, så log ind igen på telefonen: "
+                + Web.address().replace("http://", "") + "  (Log ud af udbyderen → log ind med den nye server).");
+    }
     private boolean firstFocusDone;
     private String shown = "";
     private final Handler h = new Handler(Looper.getMainLooper());
     private final Runnable rebuild = this::rebuild;
     private final Runnable onData = () -> { h.removeCallbacks(rebuild); h.postDelayed(rebuild, 200); };
-    private final Runnable tick = new Runnable() { @Override public void run() { top.clock.setText(Fmt.clock()); if (heroCh != null) setLive(heroCh); h.postDelayed(this, 30_000); } };
+    private final Runnable tick = new Runnable() { @Override public void run() {
+        top.clock.setText(Fmt.clock());
+        if (heroCh != null) setLive(heroCh);
+        Health.check(HomeActivity.this, false);
+        bindAlert();
+        h.postDelayed(this, 30_000);
+    } };
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -54,6 +71,7 @@ public class HomeActivity extends Activity {
         Vod.loadCategories(this, Vod.MOVIE);
         Vod.loadCategories(this, Vod.SERIES);
         Updater.check(this);
+        Health.check(this, true);
 
         ScrollView sv = new ScrollView(this);
         sv.setVerticalScrollBarEnabled(false);
@@ -123,6 +141,29 @@ public class HomeActivity extends Activity {
         View topShade = new View(this);
         topShade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0xF20B0B0D, 0x000B0B0D}));
         root.addView(topShade, new FrameLayout.LayoutParams(-1, px.p(190)));
+        // Besked nederst, når udbyderen ikke svarer
+        alert = new LinearLayout(this);
+        alert.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        alert.setBackground(Ui.round(0xF2241416, px.p(24)));
+        alert.setPadding(px.p(30), px.p(22), px.p(36), px.p(22));
+        View dot = new View(this);
+        dot.setBackground(Ui.round(Ui.RED, px.p(8)));
+        alert.addView(dot, new LinearLayout.LayoutParams(px.p(16), px.p(16)));
+        LinearLayout at = new LinearLayout(this);
+        at.setOrientation(LinearLayout.VERTICAL);
+        alertTitle = px.t(24, 650, 0xFFFFFFFF);
+        alertTitle.setSingleLine(false);
+        at.addView(alertTitle);
+        alertText = px.t(20, 400, Theme.white(0.7f));
+        alertText.setSingleLine(false);
+        at.addView(alertText, lp(-1, 6));
+        LinearLayout.LayoutParams atl = new LinearLayout.LayoutParams(0, -2, 1);
+        atl.leftMargin = px.p(22);
+        alert.addView(at, atl);
+        alert.setVisibility(View.GONE);
+        FrameLayout.LayoutParams al = new FrameLayout.LayoutParams(-1, -2, android.view.Gravity.BOTTOM);
+        al.leftMargin = px.p(96); al.rightMargin = px.p(96); al.bottomMargin = px.p(48);
+        root.addView(alert, al);
         top = Ui.topBar(this, px, Nav.TABS, Nav.HOME);
         root.addView(top.root, Ui.at(px.p(96), px.p(42), px.p(1728), -2));
         Nav.wire(this, top, Nav.HOME, null);
@@ -178,6 +219,7 @@ public class HomeActivity extends Activity {
         for (Vod.Resume r : cont) st.append(r.key).append(r.pos / 60000);
         for (Catalog.Ch c : favs) { Xtream.Prog n = Epg.now(c.id); st.append(n != null ? n.title : "-"); }
         st.append('|').append(Updater.available(this)).append(Updater.state);
+        bindAlert();
         if (st.toString().equals(shown)) return;
         updatePill();
         shown = st.toString();
