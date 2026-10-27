@@ -195,7 +195,22 @@ final class Catalog {
     }
 
     static int lastChannel(Context c) { return prefs(c).getInt("last", -1); }
-    static void setLastChannel(Context c, int id) { prefs(c).edit().putInt("last", id).apply(); }
+    static void setLastChannel(Context c, int id) {
+        // seneste 20 kanaler, nyeste først (bruges til "Live nu" uden favoritter)
+        List<Integer> h = history(c);
+        h.remove(Integer.valueOf(id));
+        h.add(0, id);
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < Math.min(20, h.size()); i++) { if (i > 0) b.append(','); b.append(h.get(i)); }
+        prefs(c).edit().putInt("last", id).putString("history", b.toString()).apply();
+    }
+
+    static List<Integer> history(Context c) {
+        List<Integer> out = new ArrayList<>();
+        for (String s : prefs(c).getString("history", "").split(","))
+            if (!s.isEmpty()) try { out.add(Integer.parseInt(s)); } catch (NumberFormatException ignored) { }
+        return out;
+    }
 
     static String read(File f) throws Exception {
         try (FileInputStream in = new FileInputStream(f)) {

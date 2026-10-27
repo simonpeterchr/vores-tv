@@ -76,6 +76,9 @@ public class HomeActivity extends Activity {
         ht.addView(kicker);
         title = px.t(87, 700, 0xFFFFFFFF);
         title.setLetterSpacing(-0.035f);
+        title.setSingleLine(false);
+        title.setMaxLines(2);
+        title.setLineSpacing(0, 0.95f);
         ht.addView(title, lp(-2, 18));
         meta = px.t(22.5f, 400, Theme.white(0.75f));
         ht.addView(meta, lp(-2, 16));
@@ -87,7 +90,7 @@ public class HomeActivity extends Activity {
         buttons = new LinearLayout(this);
         buttons.setClipChildren(false);
         ht.addView(buttons, lp(-2, 30));
-        heroBox.addView(ht, Ui.at(px.p(96), px.p(220), px.p(1100), -2));
+        heroBox.addView(ht, Ui.at(px.p(96), px.p(190), px.p(1150), -2));
         heroBox.setClipChildren(false);
         page.addView(heroBox, new LinearLayout.LayoutParams(-1, px.p(760)));
         root.addView(sv, new FrameLayout.LayoutParams(-1, -1));
@@ -127,20 +130,14 @@ public class HomeActivity extends Activity {
         h.removeCallbacks(tick);
     }
 
-    private List<Vod.Item> firstGroup(String kind) {
-        for (String g : Vod.shownGroups(this, kind)) {
-            List<Vod.Item> l = Vod.inCategory(this, kind, g);
-            if (!l.isEmpty()) return l;
-        }
-        return java.util.Collections.emptyList();
-    }
-
     private void rebuild() {
         List<Vod.Resume> cont = Vod.continueList(this, null);
-        List<Catalog.Ch> favs = Catalog.favorites(this);
-        List<Vod.Item> movies = firstGroup(Vod.MOVIE), series = firstGroup(Vod.SERIES);
+        List<Catalog.Ch> favs = Feed.liveNow(this, 16);
+        List<Search.Hit> sport = Feed.sportNow(this, 20);
+        List<Vod.Item> movies = Feed.newest(this, Vod.MOVIE, 24), series = Feed.newest(this, Vod.SERIES, 24);
         StringBuilder st = new StringBuilder();
-        st.append(cont.size()).append('|').append(favs.size()).append('|').append(movies.size()).append('|').append(series.size());
+        st.append(cont.size()).append('|').append(favs.size()).append('|').append(movies.size()).append('|').append(series.size()).append('|').append(sport.size());
+        for (Search.Hit x : sport) st.append(x.name);
         for (Vod.Resume r : cont) st.append(r.key).append(r.pos / 60000);
         for (Catalog.Ch c : favs) { Xtream.Prog n = Epg.now(c.id); st.append(n != null ? n.title : "-"); }
         st.append('|').append(Updater.available(this)).append(Updater.state);
@@ -151,9 +148,7 @@ public class HomeActivity extends Activity {
         String keepTag = keep != null && keep.getTag(0x7f0a0001) != null ? (String) keep.getTag(0x7f0a0001) : null;
 
         // forside: nyeste film med plakat, ellers første
-        Vod.Item pick = null;
-        for (Vod.Item it : movies) if (it.poster != null && !it.poster.isEmpty()) { pick = it; break; }
-        if (pick == null && !movies.isEmpty()) pick = movies.get(0);
+        Vod.Item pick = Feed.hero(this);
         if (pick != null && (hero == null || !hero.id.equals(pick.id))) setHero(pick);
 
         while (page.getChildCount() > 1) page.removeViewAt(1);
@@ -170,8 +165,21 @@ public class HomeActivity extends Activity {
                 if (("r" + x.key).equals(keepTag)) restore = box;
             }
         }
+        if (!sport.isEmpty()) {
+            LinearLayout r = row("Sport i dag", true);
+            long t0 = System.currentTimeMillis();
+            for (final Search.Hit x : sport) {
+                float p = x.start <= t0 ? Math.min(1f, (t0 - x.start) / (float) Math.max(1, x.stop - x.start)) : 0;
+                LinearLayout c = Poster.logoCard(this, px, px.p(390), px.p(219), x.img, x.name, x.sub, p, null);
+                View box = Poster.box(c);
+                box.setTag(0x7f0a0001, "s" + x.chId + x.name);
+                box.setOnClickListener(v -> playChannel(x.chId));
+                add(r, c);
+                if (("s" + x.chId + x.name).equals(keepTag)) restore = box;
+            }
+        }
         if (!favs.isEmpty()) {
-            LinearLayout r = row("Live nu", true);
+            LinearLayout r = row(Catalog.favorites(this).isEmpty() ? "Live nu" : "Live nu · favoritter", true);
             final int[] ids = new int[favs.size()];
             for (int i = 0; i < ids.length; i++) ids[i] = favs.get(i).id;
             long t = System.currentTimeMillis();
@@ -249,8 +257,9 @@ public class HomeActivity extends Activity {
     private void setHero(final Vod.Item it) {
         hero = it;
         Vod.Cat k = Vod.categories(Vod.MOVIE).get(it.cat);
-        kicker.setText(("Nyt i " + (k != null ? k.name : "film")).toUpperCase(Fmt.DA));
+        kicker.setText("NY FILM");
         title.setText(it.name);
+        title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, px.p(it.name.length() > 22 ? 66 : 87));
         meta.setText((it.year != null ? it.year : "") + (it.rating != null && !it.rating.isEmpty() && !it.rating.equals("0") ? "   ★ " + it.rating : ""));
         plot.setText("");
         Img.load(backdrop, it.poster, px.p(1000));
@@ -296,12 +305,23 @@ public class HomeActivity extends Activity {
         if (!Updater.available(this) && Updater.state == null) return;
         String s = Updater.state;
         String label = "henter".equals(s) ? "Henter opdatering …" : "installerer".equals(s) ? "Installerer …"
-                : s != null && !Updater.available(this) ? s : "⬇  Opdatér til " + Updater.latestVersion;
+                : s != null && !Updater.available(this) ? s : "Opdatér til " + Updater.latestVersion;
         upd = Ui.pill(this, px, label);
         upd.setOnClickListener(v -> Updater.install(this));
         LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(-2, -2);
         l.leftMargin = px.p(18);
         buttons.addView(upd, l);
+    }
+
+    /** Afspil en kanal sammen med resten af dens gruppe, så ▴▾ zapper videre. */
+    private void playChannel(int chId) {
+        Catalog.Ch ch = Catalog.byId.get(chId);
+        if (ch == null) return;
+        List<Catalog.Ch> l = Catalog.inCategory(ch.cat);
+        int[] ids = new int[l.size()];
+        int at = 0;
+        for (int i = 0; i < ids.length; i++) { ids[i] = l.get(i).id; if (ids[i] == chId) at = i; }
+        startActivity(new Intent(this, PlayerActivity.class).putExtra("ids", ids).putExtra("i", at).putExtra("cat", ch.cat));
     }
 
     private void open(Vod.Item it) {

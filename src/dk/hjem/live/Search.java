@@ -94,8 +94,8 @@ final class Search {
         return false;
     }
 
-    private static final java.util.regex.Pattern EVENT = java.util.regex.Pattern.compile("\\s*[@|]\\s*(\\d{4}-\\d{2}-\\d{2})[ T]+(\\d{1,2}:\\d{2})");
-    private static final java.text.SimpleDateFormat EVENT_FMT = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT);
+    static final java.util.regex.Pattern EVENT = java.util.regex.Pattern.compile("\\s*[@|]\\s*(\\d{4}-\\d{2}-\\d{2})[ T]+(\\d{1,2}:\\d{2})");
+    static final java.text.SimpleDateFormat EVENT_FMT = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT);
 
     static String when(long t) {
         java.util.Calendar a = java.util.Calendar.getInstance(), b = java.util.Calendar.getInstance();
