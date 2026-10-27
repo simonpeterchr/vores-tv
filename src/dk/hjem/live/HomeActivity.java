@@ -46,6 +46,7 @@ public class HomeActivity extends Activity {
         Catalog.load(this, false);
         Vod.loadCategories(this, Vod.MOVIE);
         Vod.loadCategories(this, Vod.SERIES);
+        Updater.check(this);
 
         ScrollView sv = new ScrollView(this);
         sv.setVerticalScrollBarEnabled(false);
@@ -142,7 +143,9 @@ public class HomeActivity extends Activity {
         st.append(cont.size()).append('|').append(favs.size()).append('|').append(movies.size()).append('|').append(series.size());
         for (Vod.Resume r : cont) st.append(r.key).append(r.pos / 60000);
         for (Catalog.Ch c : favs) { Xtream.Prog n = Epg.now(c.id); st.append(n != null ? n.title : "-"); }
+        st.append('|').append(Updater.available(this)).append(Updater.state);
         if (st.toString().equals(shown)) return;
+        updatePill();
         shown = st.toString();
         View keep = getCurrentFocus();
         String keepTag = keep != null && keep.getTag(0x7f0a0001) != null ? (String) keep.getTag(0x7f0a0001) : null;
@@ -262,6 +265,8 @@ public class HomeActivity extends Activity {
         LinearLayout.LayoutParams ml = new LinearLayout.LayoutParams(-2, -2);
         ml.leftMargin = px.p(18);
         buttons.addView(more, ml);
+        upd = null;
+        updatePill();
         if (it.id.equals(heroBackdropFor)) return;
         heroBackdropFor = it.id;
         final Cred cr = Cred.load(this);
@@ -281,6 +286,22 @@ public class HomeActivity extends Activity {
                 });
             } catch (Exception ignored) { }
         }, "hero").start();
+    }
+
+    private TextView upd;
+
+    /** "Opdatér til 0.21" ved siden af Afspil/Detaljer, når GitHub har en nyere version. */
+    private void updatePill() {
+        if (upd != null) { buttons.removeView(upd); upd = null; }
+        if (!Updater.available(this) && Updater.state == null) return;
+        String s = Updater.state;
+        String label = "henter".equals(s) ? "Henter opdatering …" : "installerer".equals(s) ? "Installerer …"
+                : s != null && !Updater.available(this) ? s : "⬇  Opdatér til " + Updater.latestVersion;
+        upd = Ui.pill(this, px, label);
+        upd.setOnClickListener(v -> Updater.install(this));
+        LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(-2, -2);
+        l.leftMargin = px.p(18);
+        buttons.addView(upd, l);
     }
 
     private void open(Vod.Item it) {
