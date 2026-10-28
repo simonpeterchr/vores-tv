@@ -36,7 +36,17 @@ final class Sports {
 
     static final class Team { String name, shortName, abbr, logo; int score = -1; }
 
+    static final String FOOTBALL = "football", F1 = "f1", DARTS = "darts", HANDBALL = "handball", TENNIS = "tennis", MMA = "mma", GOLF = "golf";
+
+    /** Sportsgrene med visningsnavn (rækkefølgen på Sport-fanen). */
+    static final String[][] SPORTS = {{FOOTBALL, "Fodbold"}, {F1, "Formel 1"}, {DARTS, "Dart"}, {HANDBALL, "Håndbold"}, {TENNIS, "Tennis"}, {MMA, "UFC"}, {GOLF, "Golf"}};
+
+    static String sportName(String s) { for (String[] x : SPORTS) if (x[0].equals(s)) return x[1]; return s; }
+
     static final class Game {
+        String sport = FOOTBALL; // football | f1 | darts | handball | tennis | mma | golf
+        String title, sub; // begivenheder uden to hold (F1-session, dartaften, turnering)
+        boolean allDay;
         String id, league, leagueName;
         long start;
         String state = "pre", detail = "", clock = ""; // pre | in | post
@@ -54,7 +64,10 @@ final class Sports {
 
     // ---- favoritter ----
     private static SharedPreferences prefs(Context c) { return c.getSharedPreferences("sport", Context.MODE_PRIVATE); }
-    static final String DEFAULT_TEAMS = "Sønderjyske\nBarcelona\nWrexham\nHamburg", DEFAULT_LEAGUES = "den.1\neng.1\nger.1";
+    static final String DEFAULT_TEAMS = "Sønderjyske\nBarcelona\nWrexham\nHamburg", DEFAULT_LEAGUES = "den.1\neng.1\nger.1", DEFAULT_SPORTS = "f1\ndarts\nhandball";
+
+    static List<String> favSports(Context c) { return lines(prefs(c).getString("sports", DEFAULT_SPORTS)); }
+    static void setFavSports(Context c, List<String> v) { prefs(c).edit().putString("sports", android.text.TextUtils.join("\n", v)).apply(); Catalog.changed(); }
 
     static List<String> favTeams(Context c) { return lines(prefs(c).getString("teams", DEFAULT_TEAMS)); }
     static List<String> favLeagues(Context c) { return lines(prefs(c).getString("leagues", DEFAULT_LEAGUES)); }
@@ -70,12 +83,16 @@ final class Sports {
     }
 
     static boolean isFavTeam(Context c, Team t) {
+        if (t.name == null) return false;
         String n = Search.norm(t.name + " " + t.shortName);
         for (String f : favTeams(c)) if (n.contains(Search.norm(f))) return true;
         return false;
     }
 
-    static boolean mine(Context c, Game g) { return isFavTeam(c, g.home) || isFavTeam(c, g.away) || favLeagues(c).contains(g.league); }
+    static boolean mine(Context c, Game g) {
+        if (!FOOTBALL.equals(g.sport)) return favSports(c).contains(g.sport) || (g.home.name != null && (isFavTeam(c, g.home) || isFavTeam(c, g.away)));
+        return isFavTeam(c, g.home) || isFavTeam(c, g.away) || favLeagues(c).contains(g.league);
+    }
 
     // ---- hentning: én dag ad gangen pr. liga ----
     private static String day(int offset) {
@@ -84,8 +101,49 @@ final class Sports {
         return new SimpleDateFormat("yyyyMMdd", Locale.ROOT).format(k.getTime());
     }
 
+    /** ESPN-kilder ud over fodbold (dag for dag): {sti, sport, visningsnavn}. */
+    static final String[][] ESPN_OTHER = {
+            {"racing/f1", F1, "Formel 1"}, {"tennis/atp", TENNIS, "ATP"}, {"tennis/wta", TENNIS, "WTA"},
+            {"mma/ufc", MMA, "UFC"}, {"golf/pga", GOLF, "PGA Tour"},
+    };
+
+    /** TheSportsDB (gratis nøgle): dart og håndbold, som ESPN ikke har. */
+    static final String[][] TSDB = {{"Darts", DARTS}, {"Handball", HANDBALL}};
+    private static final ExecutorService tsdb = Executors.newSingleThreadExecutor(); // én ad gangen (begrænset antal opslag)
+
     /** Henter i dag (oftere) og de næste 6 dage (sjældnere). */
     static void refresh() {
+        for (String[] o : ESPN_OTHER) for (int i = -1; i <= 6; i++) {
+            final String key = o[0] + "|" + day(i);
+            Long f = fetched.get(key);
+            long maxAge = i == 0 ? 120_000L : 6 * 3600_000L;
+            if (f != null && System.currentTimeMillis() - f < maxAge) continue;
+            fetched.put(key, System.currentTimeMillis());
+            final String[] src = o;
+            final String d = day(i);
+            pool.execute(() -> {
+                try { parseOther(src, new JSONObject(Http.text("https://site.api.espn.com/apis/site/v2/sports/" + src[0] + "/scoreboard?dates=" + d))); Catalog.changed(); }
+                catch (Exception e) { fetched.remove(key); }
+            });
+        }
+        for (String[] t : TSDB) for (int i = 0; i <= 6; i++) {
+            final String key = "tsdb|" + t[0] + "|" + day(i);
+            Long f = fetched.get(key);
+            long maxAge = i == 0 ? 15 * 60_000L : 12 * 3600_000L;
+            if (f != null && System.currentTimeMillis() - f < maxAge) continue;
+            fetched.put(key, System.currentTimeMillis());
+            final String[] src = t;
+            Calendar k = Calendar.getInstance();
+            k.add(Calendar.DAY_OF_YEAR, i);
+            final String d = new SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(k.getTime());
+            tsdb.execute(() -> {
+                try {
+                    Thread.sleep(2500);
+                    parseTsdb(src[1], new JSONObject(Http.text("https://www.thesportsdb.com/api/v1/json/123/eventsday.php?d=" + d + "&s=" + src[0])));
+                    Catalog.changed();
+                } catch (Exception e) { fetched.remove(key); }
+            });
+        }
         for (League l : LEAGUES) for (int i = -1; i <= 6; i++) {
             final String key = l.code + "|" + day(i);
             Long f = fetched.get(key);
@@ -140,6 +198,83 @@ final class Sports {
         }
     }
 
+    private static String session(String abbr) {
+        if (abbr == null) return "";
+        switch (abbr) {
+            case "FP1": return "1. træning"; case "FP2": return "2. træning"; case "FP3": return "3. træning";
+            case "Qual": return "Kvalifikation"; case "Race": return "Løb"; case "Sprint": return "Sprint";
+            case "SS": case "SQ": return "Sprint-kvalifikation";
+            default: return abbr;
+        }
+    }
+
+    private static void parseOther(String[] src, JSONObject o) throws Exception {
+        JSONArray ev = o.optJSONArray("events");
+        if (ev == null) return;
+        for (int i = 0; i < ev.length(); i++) {
+            JSONObject e = ev.getJSONObject(i);
+            String name = e.optString("name");
+            JSONArray comps = e.optJSONArray("competitions");
+            if (F1.equals(src[1]) && comps != null) { // én kort pr. session: træning, kvalifikation, løb
+                for (int k = 0; k < comps.length(); k++) {
+                    JSONObject c = comps.getJSONObject(k);
+                    Game g = other(src, e.optString("id") + "-" + k, name.replaceFirst("^(MSC Cruises|Heineken|Qatar Airways|Pirelli|Aramco|Lenovo|Crypto\\.com|AWS|Louis Vuitton|Gulf Air|STC|Etihad Airways|Rolex|Formula 1)\\s+", ""),
+                            session(c.optJSONObject("type") != null ? c.optJSONObject("type").optString("abbreviation") : ""), c.optString("date"), c.optJSONObject("status"));
+                    if (g != null) games.put(g.id + "|" + g.league, g);
+                }
+                continue;
+            }
+            Game g = other(src, e.optString("id"), name, src[2], e.optString("date"), e.optJSONObject("status"));
+            if (g != null) { if (!MMA.equals(src[1])) g.allDay = true; games.put(g.id + "|" + g.league, g); }
+        }
+    }
+
+    private static Game other(String[] src, String id, String title, String sub, String date, JSONObject st) {
+        Game g = new Game();
+        g.sport = src[1]; g.id = id; g.league = src[0]; g.leagueName = src[2];
+        g.title = title; g.sub = sub;
+        g.start = iso(date);
+        if (g.start == 0) return null;
+        if (st != null) {
+            JSONObject t = st.optJSONObject("type");
+            if (t != null) { g.state = t.optString("state", "pre"); g.detail = t.optString("shortDetail", ""); }
+        }
+        return g;
+    }
+
+    private static final SimpleDateFormat TS = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT);
+    static { TS.setTimeZone(TimeZone.getTimeZone("UTC")); }
+
+    private static void parseTsdb(String sport, JSONObject o) throws Exception {
+        JSONArray ev = o.optJSONArray("events");
+        if (ev == null) return;
+        for (int i = 0; i < ev.length(); i++) {
+            JSONObject e = ev.getJSONObject(i);
+            Game g = new Game();
+            g.sport = sport;
+            g.id = "t" + e.optString("idEvent");
+            g.league = "tsdb." + e.optString("idLeague");
+            g.leagueName = e.optString("strLeague").replace("German Handball-Bundesliga", "Handball-Bundesliga").replace("Danish Mens Handball League", "Herreligaen").replace("Danish Womens Handball League", "Kvindeligaen").replace("PDC Darts", "PDC");
+            String time = e.optString("strTime", "00:00:00");
+            if (time.isEmpty() || "null".equals(time)) time = "00:00:00";
+            g.allDay = time.startsWith("00:00");
+            synchronized (TS) { try { g.start = TS.parse(e.optString("dateEvent") + " " + time.substring(0, Math.min(8, time.length()))).getTime(); } catch (Exception x) { continue; } }
+            String h = e.optString("strHomeTeam", ""), a = e.optString("strAwayTeam", "");
+            if (!h.isEmpty() && !"null".equals(h) && !a.isEmpty() && !"null".equals(a)) {
+                g.home.name = h; g.home.shortName = h.replace(" Håndbold", "").replace(" Handball", "").replace("Handball Sport Verein ", "HSV ");
+                g.away.name = a; g.away.shortName = a.replace(" Håndbold", "").replace(" Handball", "").replace("Handball Sport Verein ", "HSV ");
+                g.home.logo = e.optString("strHomeTeamBadge", ""); g.away.logo = e.optString("strAwayTeamBadge", "");
+                try { g.home.score = Integer.parseInt(e.optString("intHomeScore")); g.away.score = Integer.parseInt(e.optString("intAwayScore")); } catch (Exception ignored) { }
+            } else {
+                g.title = e.optString("strEvent"); g.sub = g.leagueName;
+            }
+            String status = e.optString("strStatus", "");
+            g.state = status.matches("(?i)(FT|AOT|AET|Match Finished|Finished)") ? "post" : status.matches("(?i)(1H|2H|HT|Live|In Progress)") ? "in" : "pre";
+            if ("pre".equals(g.state) && !g.allDay && System.currentTimeMillis() > g.start && System.currentTimeMillis() < g.start + 2 * 3600_000L) g.state = "in";
+            games.put(g.id + "|" + g.league, g);
+        }
+    }
+
     /** Kampe sorteret: i gang først, så kommende efter tid, så afsluttede (seneste først). */
     static List<Game> list(Context c, boolean onlyMine) {
         List<Game> out = new ArrayList<>();
@@ -148,7 +283,8 @@ final class Sports {
         for (Game g : games.values()) {
             if (g.start < from) continue;
             if (onlyMine && !mine(c, g)) continue;
-            if (!seen.add(g.home.name + "-" + g.away.name + "@" + g.start)) continue; // samme kamp i to "ligaer"
+            String dk = g.title != null ? g.sport + g.title + g.sub + g.start : g.home.name + "-" + g.away.name + "@" + g.start;
+            if (!seen.add(dk)) continue; // samme kamp i to "ligaer"
             out.add(g);
         }
         Collections.sort(out, (a, b) -> {
@@ -161,6 +297,7 @@ final class Sports {
 
     /** Andre kampe i samme liga samme dag ("resten af runden"). */
     static List<Game> round(Game g) {
+        if (g.title != null && !F1.equals(g.sport)) return new ArrayList<>();
         List<Game> out = new ArrayList<>();
         Calendar a = Calendar.getInstance(), b = Calendar.getInstance();
         a.setTimeInMillis(g.start);
@@ -222,6 +359,7 @@ final class Sports {
     static String status(Game g) {
         if (g.live()) return g.detail.isEmpty() ? g.clock : g.detail.replace("Halftime", "Pause").replace("HT", "Pause");
         if (g.done()) return "Slut";
+        if (g.allDay) return Search.when(g.start).replaceAll(" \\d{2}\\.\\d{2}$", "");
         return Search.when(g.start).replace("I dag ", "");
     }
 }

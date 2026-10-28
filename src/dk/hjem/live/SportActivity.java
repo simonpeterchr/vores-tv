@@ -90,8 +90,8 @@ public class SportActivity extends Activity {
         List<String[]> ps = new ArrayList<>();
         ps.add(new String[]{MINE, "★ Mine kampe"});
         ps.add(new String[]{LIVE, "● Live nu"});
-        for (String code : Sports.favLeagues(this)) { Sports.League l = Sports.league(code); if (l != null) ps.add(new String[]{code, l.name}); }
-        ps.add(new String[]{ALL, "Alle kampe"});
+        for (String[] s : Sports.SPORTS) ps.add(new String[]{"sport:" + s[0], s[1]});
+        ps.add(new String[]{ALL, "Alt"});
         for (final String[] p : ps) {
             final TextView t = px.t(22.5f, 500, 0xFFFFFFFF);
             t.setText(p[1]);
@@ -128,7 +128,9 @@ public class SportActivity extends Activity {
 
     private int index(String key) {
         List<String> keys = new ArrayList<>();
-        keys.add(MINE); keys.add(LIVE); keys.addAll(Sports.favLeagues(this)); keys.add(ALL);
+        keys.add(MINE); keys.add(LIVE);
+        for (String[] s : Sports.SPORTS) keys.add("sport:" + s[0]);
+        keys.add(ALL);
         return keys.indexOf(key);
     }
 
@@ -137,7 +139,7 @@ public class SportActivity extends Activity {
         for (Sports.Game g : all) {
             if (MINE.equals(filter) && !Sports.mine(this, g)) continue;
             if (LIVE.equals(filter) && !g.live()) continue;
-            if (!MINE.equals(filter) && !LIVE.equals(filter) && !ALL.equals(filter) && !filter.equals(g.league)) continue;
+            if (filter.startsWith("sport:") && !filter.substring(6).equals(g.sport)) continue;
             list.add(g);
         }
         StringBuilder st = new StringBuilder(filter).append(Sports.spoilerFree(this)).append(Catalog.loaded);
@@ -147,7 +149,7 @@ public class SportActivity extends Activity {
         View keep = getCurrentFocus();
         boolean inRows = keep != null && keep.getTag(0x7f0a0003) != null;
         rows.removeAllViews();
-        status.setText(Sports.games.isEmpty() ? "Henter kampprogram …" : list.isEmpty() ? "Ingen kampe her de næste dage." : list.size() + " kampe");
+        status.setText(Sports.games.isEmpty() ? "Henter kampprogram …" : list.isEmpty() ? "Intet på programmet her de næste dage." : list.size() + (list.size() == 1 ? " begivenhed" : " begivenheder"));
         // grupper: Live nu, I dag, I morgen, ugedage
         Map<String, List<Sports.Game>> secs = new LinkedHashMap<>();
         for (Sports.Game g : list) {
@@ -206,24 +208,35 @@ public class SportActivity extends Activity {
         c.setPadding(px.p(26), px.p(22), px.p(26), px.p(22));
         c.setFocusable(true);
         c.setTag(0x7f0a0003, "g");
-        boolean fav = Sports.isFavTeam(this, g.home) || Sports.isFavTeam(this, g.away);
+        boolean fav = Sports.isFavTeam(this, g.home) || Sports.isFavTeam(this, g.away) || (g.title != null && Sports.favSports(this).contains(g.sport));
         c.setBackground(Ui.round(fav ? 0xFF24242B : 0xFF1C1C21, px.p(20)));
         LinearLayout hd = new LinearLayout(this);
         hd.setGravity(Gravity.CENTER_VERTICAL);
         TextView lg = px.t(17, 600, Theme.white(0.55f));
         lg.setLetterSpacing(0.08f);
-        lg.setText(g.leagueName.toUpperCase(Fmt.DA));
+        lg.setText((Sports.FOOTBALL.equals(g.sport) || g.leagueName.equals(Sports.sportName(g.sport)) ? g.leagueName : Sports.sportName(g.sport) + " · " + g.leagueName).toUpperCase(Fmt.DA));
         hd.addView(lg, new LinearLayout.LayoutParams(0, -2, 1));
         if (g.live()) hd.addView(Ui.badge(this, px, "LIVE", true));
         TextView stt = px.t(19, 600, g.live() ? 0xFFFF6B6B : Theme.white(0.8f));
-        stt.setText(g.live() || g.done() ? Sports.status(g) : Fmt.hm(g.start));
+        stt.setText(g.live() || g.done() ? Sports.status(g) : g.allDay ? "Hele dagen" : Fmt.hm(g.start));
         LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(-2, -2);
         sl.leftMargin = px.p(12);
         hd.addView(stt, sl);
         c.addView(hd);
         boolean showScore = !spoil && !"pre".equals(g.state);
-        c.addView(teamRow(g.home, showScore), lp(18));
-        c.addView(teamRow(g.away, showScore), lp(10));
+        if (g.title != null) {
+            TextView tt = px.t(26, 700, 0xFFFFFFFF);
+            tt.setSingleLine(false);
+            tt.setMaxLines(2);
+            tt.setText(g.title);
+            c.addView(tt, lp(18));
+            TextView sb = px.t(21, 500, Theme.white(0.7f));
+            sb.setText(g.sub != null ? g.sub : "");
+            c.addView(sb, lp(8));
+        } else {
+            c.addView(teamRow(g.home, showScore), lp(18));
+            c.addView(teamRow(g.away, showScore), lp(10));
+        }
         Integer cached = counts.get(g.id + g.league);
         int n = cached == null ? 0 : cached;
         if (cached == null) countLater(g);
@@ -265,7 +278,7 @@ public class SportActivity extends Activity {
         Img.load(lg, t.logo, px.p(44));
         r.addView(lg, new LinearLayout.LayoutParams(px.p(44), px.p(44)));
         TextView n = px.t(26, Sports.isFavTeam(this, t) ? 700 : 500, 0xFFFFFFFF);
-        n.setText(t.shortName != null ? t.shortName : t.name);
+        n.setText(t.shortName != null ? t.shortName : t.name != null ? t.name : "");
         LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(0, -2, 1);
         nl.leftMargin = px.p(16);
         r.addView(n, nl);

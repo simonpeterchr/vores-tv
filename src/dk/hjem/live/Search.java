@@ -48,6 +48,14 @@ final class Search {
         SYN.put("nyheder", new String[]{"nyheder", "tv avisen", "tva", "news", "21 søndag", "deadline"});
     }
 
+    /** Sportsord for en sportsgren (normaliseret), fx "dart" → darts, pdc … */
+    static List<String> synonyms(String key) {
+        List<String> out = new ArrayList<>();
+        String[] v = SYN.get(key);
+        if (v != null) for (String s : v) out.add(norm(s));
+        return out;
+    }
+
     static String norm(String s) {
         if (s == null) return "";
         s = s.toLowerCase(Locale.ROOT).replace('æ', '\u0001').replace('ø', '\u0002').replace('å', '\u0003');

@@ -66,7 +66,7 @@ public class MatchActivity extends Activity {
         findLater(g);
         StringBuilder st = new StringBuilder().append(g.state).append(g.home.score).append(g.away.score).append(g.clock).append(spoil);
         for (Match.Stream s : list) st.append(s.ch.id).append(s.confidence);
-        st.append(Sports.table(g.league).size());
+        st.append(Sports.FOOTBALL.equals(g.sport) ? Sports.table(g.league).size() : 0);
         if (st.toString().equals(shown)) return;
         shown = st.toString();
         View keep = getCurrentFocus();
@@ -78,12 +78,23 @@ public class MatchActivity extends Activity {
         k.setGravity(Gravity.CENTER_VERTICAL);
         TextView lg = px.t(19, 600, Theme.white(0.6f));
         lg.setLetterSpacing(0.1f);
-        lg.setText(g.leagueName.toUpperCase(Fmt.DA) + "   ·   " + Sports.status(g));
+        lg.setText((Sports.FOOTBALL.equals(g.sport) ? g.leagueName : Sports.sportName(g.sport) + " · " + g.leagueName).toUpperCase(Fmt.DA) + "   ·   " + (g.allDay && !g.live() && !g.done() ? Sports.status(g) + " · hele dagen" : Sports.status(g)));
         k.addView(lg);
         if (g.live()) { LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(-2, -2); bl.leftMargin = px.p(16); k.addView(Ui.badge(this, px, "LIVE", true), bl); }
         head.addView(k);
-        head.addView(team(g.home, score), lp(28));
-        head.addView(team(g.away, score), lp(14));
+        if (g.title != null) {
+            TextView tt = px.t(56, 700, 0xFFFFFFFF);
+            tt.setSingleLine(false);
+            tt.setMaxLines(2);
+            tt.setText(g.title);
+            head.addView(tt, lp(24));
+            TextView sb = px.t(30, 500, Theme.white(0.75f));
+            sb.setText(g.sub != null ? g.sub : "");
+            head.addView(sb, lp(10));
+        } else {
+            head.addView(team(g.home, score), lp(28));
+            head.addView(team(g.away, score), lp(14));
+        }
 
         // streams
         streams.removeAllViews();
@@ -109,7 +120,7 @@ public class MatchActivity extends Activity {
 
         // side: stilling + resten af runden
         side.removeAllViews();
-        List<Sports.Row> table = Sports.table(g.league);
+        List<Sports.Row> table = Sports.FOOTBALL.equals(g.sport) ? Sports.table(g.league) : new java.util.ArrayList<>();
         if (!table.isEmpty()) {
             TextView th = px.t(24, 600, 0xFFFFFFFF);
             th.setText("Stillingen");
@@ -122,12 +133,13 @@ public class MatchActivity extends Activity {
         List<Sports.Game> round = Sports.round(g);
         if (!round.isEmpty()) {
             TextView rh = px.t(24, 600, 0xFFFFFFFF);
-            rh.setText("Resten af runden");
+            rh.setText(Sports.F1.equals(g.sport) ? "Resten af weekenden" : "Resten af runden");
             side.addView(rh, lp(30));
             for (final Sports.Game o : round) {
                 TextView t = px.t(20, 500, 0xFFFFFFFF);
                 boolean sc = !spoil && !"pre".equals(o.state);
-                t.setText((o.live() ? "● " : "") + o.home.shortName + (sc ? "  " + o.home.score + "–" + o.away.score + "  " : "  –  ") + o.away.shortName + "     " + Sports.status(o));
+                t.setText(o.title != null ? (o.live() ? "● " : "") + o.sub + "     " + Sports.status(o)
+                        : (o.live() ? "● " : "") + o.home.shortName + (sc ? "  " + o.home.score + "–" + o.away.score + "  " : "  –  ") + o.away.shortName + "     " + Sports.status(o));
                 t.setPadding(px.p(16), px.p(12), px.p(16), px.p(12));
                 t.setFocusable(true);
                 t.setTag("r" + o.id);
@@ -259,7 +271,7 @@ public class MatchActivity extends Activity {
         for (int i = 0; i < ids.length; i++) ids[i] = list.get(i).ch.id;
         Sports.Game g = Sports.games.get(key);
         startActivity(new Intent(this, PlayerActivity.class).putExtra("ids", ids).putExtra("i", idx)
-                .putExtra("failover", true).putExtra("title", g != null ? g.home.shortName + " – " + g.away.shortName : null));
+                .putExtra("failover", true).putExtra("title", g == null ? null : g.title != null ? g.title + (g.sub != null ? " · " + g.sub : "") : g.home.shortName + " – " + g.away.shortName));
     }
 
     private LinearLayout.LayoutParams lp(float top) { LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(-1, -2); l.topMargin = px.p(top); return l; }

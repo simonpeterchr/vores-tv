@@ -23,7 +23,7 @@ final class Match {
         String confidenceText() { return confidence == CERTAIN ? "Sikker" : confidence == VERY_LIKELY ? "Meget sandsynlig" : "Sandsynlig"; }
     }
 
-    private static final String[] DROP = {"fc", "f.c.", "afc", "cf", "sv", "fodbold", "football", "club", "ac", "ssc", "as", "bk", "if", "fk", "sc", "vfb", "vfl", "tsg", "rcd", "cd", "ud", "real", "united", "city"};
+    private static final String[] DROP = {"fc", "f.c.", "afc", "cf", "sv", "fodbold", "football", "club", "ac", "ssc", "as", "bk", "if", "fk", "sc", "vfb", "vfl", "tsg", "rcd", "cd", "ud", "real", "united", "city", "håndbold", "haandbold", "handball", "hb", "hk", "kif", "tsv", "hsg", "sg", "thw"};
 
     /** Navne et hold kan stå under i kanalnavne og programguide. */
     static List<String> aliases(Sports.Team t) {
@@ -90,10 +90,69 @@ final class Match {
         return "";
     }
 
-    private static final String SPORTY = "(?i).*\\b(sport|sports|soccer|football|fodbold|eurosport|ppv|espn|dazn|premier|liga|champions|bundesliga|laliga|serie a|ligue|viaplay|tv3\\+|tv 2 sport|canal\\+|sky|bein|arena)\\b.*";
+    private static final String SPORTY = "(?i).*\\b(sport|sports|soccer|football|fodbold|eurosport|ppv|espn|dazn|premier|liga|champions|bundesliga|laliga|serie a|ligue|viaplay|tv3\\+|tv 2 sport|canal\\+|sky|bein|arena|f1|darts|tennis|golf|ufc|handball|håndbold|motorsport)\\b.*";
+
+    private static final java.util.Set<String> GENERIC = new java.util.HashSet<>(java.util.Arrays.asList(
+            "grand", "prix", "open", "championship", "championships", "masters", "cup", "tour", "night", "fight", "event", "round", "series", "the", "and", "world"));
+
+    /** Sportsord for en sportsgren uden hold. */
+    private static List<String> sportWords(String sport) {
+        switch (sport) {
+            case Sports.F1: { List<String> l = Search.synonyms("formel 1"); l.add("formula one"); return l; }
+            case Sports.DARTS: return Search.synonyms("dart");
+            case Sports.TENNIS: return Search.synonyms("tennis");
+            case Sports.GOLF: return Search.synonyms("golf");
+            case Sports.MMA: return new ArrayList<>(java.util.Arrays.asList("ufc", "mma"));
+            case Sports.HANDBALL: return Search.synonyms("håndbold");
+            default: return new ArrayList<>();
+        }
+    }
+
+    /** Begivenheder uden to hold: F1-session, dartaften, turnering. */
+    private static List<Stream> eventStreams(Context c, Sports.Game g) {
+        List<String> sw = sportWords(g.sport), tw = new ArrayList<>();
+        for (String w : clean(g.title).trim().split(" ")) if (w.length() >= 4 && !GENERIC.contains(w) && !w.matches("\\d+")) tw.add(w);
+        List<Stream> out = new ArrayList<>();
+        Set<Integer> seen = new HashSet<>();
+        String[] nn = names();
+        List<Catalog.Ch> chs = normFor;
+        for (int i = 0; i < nn.length; i++) { // kanalnavn med begivenheden (PPV) – mindst to særlige ord, eller sportsord + ét
+            int hits = 0;
+            for (String w : tw) if (nn[i].contains(" " + w + " ")) hits++;
+            if (hits >= 2 || (hits >= 1 && has(nn[i], sw))) add(out, seen, chs.get(i), CERTAIN, "Begivenheden i kanalnavnet");
+        }
+        long k0 = g.allDay ? g.start : g.start - 20 * 60_000L, k1 = g.allDay ? g.start + 24 * 3600_000L : g.start + 30 * 60_000L;
+        int wanted = 0;
+        for (Catalog.Ch ch : sportsPool(c)) {
+            if (seen.contains(ch.id)) continue;
+            if (g.start - System.currentTimeMillis() < 26 * 3600_000L && wanted++ < 120) Epg.want(c, ch.id);
+            for (Xtream.Prog p : Epg.get(ch.id)) {
+                if (p.stop < k0 || p.start > k1) continue;
+                if (p.clean == null) p.clean = clean(p.title + " " + (p.desc == null ? "" : p.desc));
+                boolean sport = has(p.clean, sw);
+                int hits = 0;
+                for (String w : tw) if (p.clean.contains(" " + w + " ")) hits++;
+                if (sport && hits > 0) { add(out, seen, ch, VERY_LIKELY, "Står i programguiden"); break; }
+                if (sport) { add(out, seen, ch, LIKELY, Sports.sportName(g.sport) + " i programguiden"); break; }
+            }
+        }
+        Collections.sort(out, (x, y) -> y.score() - x.score());
+        return out;
+    }
+
+    private static List<Catalog.Ch> sportsPool(Context c) {
+        List<Catalog.Ch> pool = new ArrayList<>(Catalog.favorites(c));
+        for (String grp : Catalog.shownGroups(c)) {
+            Catalog.Cat cat = Catalog.cats.get(grp);
+            for (Catalog.Ch ch : Catalog.inCategory(grp))
+                if ((cat != null && cat.name.matches(SPORTY)) || ch.name.matches(SPORTY)) pool.add(ch);
+        }
+        return pool;
+    }
 
     /** Alle streams for kampen, bedst først. Henter programguide for relevante kanaler i baggrunden. */
     static List<Stream> streams(Context c, Sports.Game g) {
+        if (g.title != null) return eventStreams(c, g);
         List<String> home = aliases(g.home), away = aliases(g.away);
         String league = g.leagueName == null ? "" : Search.norm(g.leagueName);
         List<Stream> out = new ArrayList<>();
@@ -105,13 +164,7 @@ final class Match {
             if (has(nn[i], home) && has(nn[i], away)) add(out, seen, chs.get(i), CERTAIN, "Begge hold i kanalnavnet");
         // programguide: kun sportskanaler i jeres grupper og favoritter (ellers er der for mange)
         long k0 = g.start - 20 * 60_000L, k1 = g.start + 30 * 60_000L;
-        List<Catalog.Ch> pool = new ArrayList<>(Catalog.favorites(c));
-        for (String grp : Catalog.shownGroups(c)) {
-            Catalog.Cat cat = Catalog.cats.get(grp);
-            for (Catalog.Ch ch : Catalog.inCategory(grp))
-                if ((cat != null && cat.name.matches(SPORTY)) || ch.name.matches(SPORTY)) pool.add(ch);
-        }
-        for (Catalog.Ch ch : pool) {
+        for (Catalog.Ch ch : sportsPool(c)) {
             if (seen.contains(ch.id)) continue;
             if (g.start - System.currentTimeMillis() < 26 * 3600_000L && wanted++ < 120) Epg.want(c, ch.id);
             for (Xtream.Prog p : Epg.get(ch.id)) {
