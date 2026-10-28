@@ -378,7 +378,10 @@ public class LiveActivity extends Activity {
                 return true;
             case KeyEvent.KEYCODE_DPAD_CENTER: case KeyEvent.KEYCODE_ENTER: case KeyEvent.KEYCODE_NUMPAD_ENTER:
                 if (e.getRepeatCount() > 0) return true;
-                play();
+                // 1. OK: spil i den lille skærm. 2. OK på samme kanal: fuld skærm.
+                Catalog.Ch c = cur();
+                if (c != null && previewing != null && previewing.id == c.id) play();
+                else if (c != null) previewChannel(c);
                 return true;
             case KeyEvent.KEYCODE_MENU: case KeyEvent.KEYCODE_BOOKMARK:
                 toggleFav();
@@ -419,6 +422,16 @@ public class LiveActivity extends Activity {
         int[] ids = new int[list.size()];
         for (int i = 0; i < ids.length; i++) ids[i] = list.get(i).id;
         startActivity(new Intent(this, PlayerActivity.class).putExtra("ids", ids).putExtra("i", sel).putExtra("cat", cat));
+    }
+
+    private void previewChannel(Catalog.Ch c) {
+        if (player == null) return;
+        previewing = c;
+        triedHls = false;
+        video.setAlpha(0f);
+        Catalog.setLastChannel(this, c.id);
+        Play.live(player, Cred.load(this), c, false);
+        bindInfo();
     }
 
     /** Forhåndsvisningen viser den kanal, der sidst blev set (eller den første, hvis der ingen er). */
@@ -543,7 +556,8 @@ public class LiveActivity extends Activity {
         int fi = prog >= 0 && prog < ps.size() ? prog : ni;
         Xtream.Prog p = fi >= 0 && fi < ps.size() ? ps.get(fi) : null;
         long t = System.currentTimeMillis();
-        infoCh.setText((sel + 1) + " · " + c.name);
+        boolean inPreview = previewing != null && previewing.id == c.id;
+        infoCh.setText((sel + 1) + " · " + c.name + (inPreview ? "   ·   ▶ Spiller her – OK igen for fuld skærm" : "   ·   OK for at se her"));
         infoTitle.setText(p != null ? p.title : c.name);
         infoStart.setText(p != null ? Fmt.hm(p.start) : "");
         infoEnd.setText(p != null ? Fmt.hm(p.stop) : "");
