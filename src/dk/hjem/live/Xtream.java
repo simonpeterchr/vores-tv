@@ -57,6 +57,7 @@ final class Xtream {
 
     static final class Prog {
         String title, desc;
+        String clean; // titel+beskrivelse renset til kamp-søgning (beregnes én gang)
         long start, stop; // ms
 
         boolean now(long t) { return t >= start && t < stop; }

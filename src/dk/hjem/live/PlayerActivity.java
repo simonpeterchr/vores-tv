@@ -44,7 +44,8 @@ public class PlayerActivity extends Activity {
     private int panelSel;     // markering i panelet
     private List<Catalog.Ch> panelList = new ArrayList<>();
     private String panelCat;
-    private boolean triedHls;
+    private boolean triedHls, failover;
+    private String fixedTitle;
     private Catalog.Ch playing;
     private String digits = "";
     private final Runnable hideInfo = () -> { if (!panelOpen()) fade(infoBar, false); fade(shadeBottom, panelOpen()); };
@@ -63,6 +64,8 @@ public class PlayerActivity extends Activity {
         int[] ids = getIntent().getIntArrayExtra("ids");
         if (ids != null) for (int id : ids) { Catalog.Ch c = Catalog.byId.get(id); if (c != null) list.add(c); }
         idx = Math.max(0, Math.min(getIntent().getIntExtra("i", 0), list.size() - 1));
+        failover = getIntent().getBooleanExtra("failover", false); // fra kampsiden: næste stream tager over
+        fixedTitle = getIntent().getStringExtra("title");
         build();
     }
 
@@ -195,6 +198,15 @@ public class PlayerActivity extends Activity {
             @Override public void onVideoSizeChanged(VideoSize v) { fit(v); }
             @Override public void onPlayerError(PlaybackException e) {
                 if (!triedHls && playing != null) { triedHls = true; Play.live(player, Cred.load(PlayerActivity.this), playing, true); return; }
+                if (failover && idx < list.size() - 1 && playing != null) {
+                    String from = playing.name, to = list.get(idx + 1).name;
+                    playing = null;
+                    playIndex(idx + 1);
+                    infoMsg.setText("Intet signal på " + from + " – prøver " + to + " …");
+                    infoMsg.setVisibility(View.VISIBLE);
+                    showInfo(6_000);
+                    return;
+                }
                 infoMsg.setText(Http.playback(e) + " Tryk OK for at prøve igen.");
                 infoMsg.setVisibility(View.VISIBLE);
                 showInfo(15_000);
@@ -279,7 +291,7 @@ public class PlayerActivity extends Activity {
         infoCh.setText((pos > 0 ? pos + " · " : "") + c.name + (Catalog.isFav(this, c.id) ? "  ★" : ""));
         Xtream.Prog n = Epg.now(c.id), x = Epg.next(c.id);
         long t = System.currentTimeMillis();
-        infoTitle.setText(n != null ? n.title : c.name);
+        infoTitle.setText(fixedTitle != null ? fixedTitle : n != null ? n.title : c.name);
         infoStart.setText(n != null ? Fmt.hm(n.start) : "");
         infoEnd.setText(n != null ? Fmt.hm(n.stop) : "");
         infoProg.setVisibility(n != null ? View.VISIBLE : View.INVISIBLE);
