@@ -108,6 +108,22 @@ final class Ev {
         return parse(raw, p);
     }
 
+    /** Kanalens korte navn: PPV-kanaler hedder fx "… | DK: VIAPLAY PPV 7" → "Viaplay PPV 7". */
+    static String channelLabel(Catalog.Ch ch) {
+        String raw = ch.raw != null ? ch.raw : ch.name;
+        if (of(ch) == null) return ch.name;
+        String tail = raw.contains("|") ? raw.substring(raw.lastIndexOf('|') + 1) : raw.contains(":") ? raw.substring(raw.lastIndexOf(':') + 1) : raw;
+        tail = tail.replaceAll("^\\s*[A-Z]{2}:\\s*", "").trim();
+        return tail.isEmpty() ? ch.name : nice(tail).replace("Ppv", "PPV");
+    }
+
+    /** Hvad der vises på en PPV-kanal (kampen), ellers null. */
+    static String eventTitle(Catalog.Ch ch) {
+        Ev e = of(ch);
+        if (e == null || e.title.isEmpty()) return null;
+        return nice(e.title.replaceAll("(?i)^(betano pokalen|oddset pokalen)\\s+", ""));
+    }
+
     /** "FC ROSKILDE" → "FC Roskilde" (store bogstaver i PPV-navne gøres pæne). */
     static String nice(String s) {
         if (s == null || !s.equals(s.toUpperCase(Locale.ROOT))) return s;

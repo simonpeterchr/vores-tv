@@ -17,6 +17,7 @@ import android.widget.TextView;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /** Hjem (design 1a): ny dansk film som forside, Fortsæt, Live nu, nyt i film og serier. */
@@ -34,7 +35,7 @@ public class HomeActivity extends Activity {
     private final Runnable startPreview = this::startPreview;
     private TextView kicker, title, meta, plot;
     private LinearLayout page, buttons;
-    private Search.Hit heroEvent;
+    private boolean heroWasGame;
     private LinearLayout alert;
     private TextView alertTitle, alertText;
 
@@ -194,6 +195,9 @@ public class HomeActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         Catalog.listeners.add(onData);
+        Sports.refresh(this);
+        final android.content.Context app = getApplicationContext();
+        Bg.run("home-guide", () -> Sports.guide(app));
         preview = Play.create(this, false);
         preview.setVolume(0f);
         preview.setVideoTextureView(video);
@@ -217,34 +221,105 @@ public class HomeActivity extends Activity {
         video.setAlpha(0f);
     }
 
+    // Live-kampe (fra Sport → Mine kampe) med streams, regnet ud i baggrunden
+    private static final java.util.Map<String, List<Match.Stream>> liveStreams = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.concurrent.ExecutorService heroPool = Bg.pool(1, "home-streams");
+    private final java.util.Set<String> pendingStreams = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
+    private Sports.Game heroGame;
+
+    private void streamsLater(final Sports.Game g) {
+        final String k = g.id + "|" + g.league;
+        if (liveStreams.containsKey(k) || !pendingStreams.add(k)) return;
+        heroPool.execute(() -> {
+            liveStreams.put(k, Match.streamsLight(getApplicationContext(), g));
+            pendingStreams.remove(k);
+            h.post(onData);
+        });
+    }
+
+    /** Dine kampe: live og i dag; er der ingen i dag, de næste par dage. */
+    private List<Sports.Game> myGames() {
+        List<Sports.Game> all = Sports.list(this, true), out = new ArrayList<>();
+        java.util.Calendar end = java.util.Calendar.getInstance();
+        end.set(java.util.Calendar.HOUR_OF_DAY, 23); end.set(java.util.Calendar.MINUTE, 59);
+        for (Sports.Game g : all) if (!g.done() && (g.live() || g.start <= end.getTimeInMillis())) out.add(g);
+        if (out.isEmpty()) for (Sports.Game g : all) if (!g.done() && g.start - System.currentTimeMillis() < 3 * 86_400_000L) out.add(g);
+        return out.size() > 16 ? out.subList(0, 16) : out;
+    }
+
     private void rebuild() {
         List<Vod.Resume> cont = Vod.continueList(this, null);
-        List<Catalog.Ch> favs = Feed.liveNow(this, 16);
-        List<Search.Hit> sport = Feed.sportNow(this, 20);
-        List<Vod.Item> movies = Feed.newest(this, Vod.MOVIE, 24), series = Feed.newest(this, Vod.SERIES, 24);
+        List<Catalog.Ch> chans = Feed.liveNow(this, 16);
+        List<Sports.Game> games = myGames();
+        List<Vod.Item> newest = new ArrayList<>();
+        List<Vod.Item> nm = Feed.newest(this, Vod.MOVIE, 12), ns = Feed.newest(this, Vod.SERIES, 12);
+        for (int i = 0; i < Math.max(nm.size(), ns.size()); i++) { if (i < nm.size()) newest.add(nm.get(i)); if (i < ns.size()) newest.add(ns.get(i)); }
+
+        // forsiden: en af dine kampe live (med streams), ellers den kanal du sidst så
+        heroGame = null;
+        for (Sports.Game g : games) {
+            if (!g.live()) continue;
+            streamsLater(g);
+            List<Match.Stream> l = liveStreams.get(g.id + "|" + g.league);
+            if (l != null && !l.isEmpty()) { heroGame = g; break; }
+        }
         StringBuilder st = new StringBuilder();
-        st.append(cont.size()).append('|').append(favs.size()).append('|').append(movies.size()).append('|').append(series.size()).append('|').append(sport.size());
-        for (Search.Hit x : sport) st.append(x.name);
+        st.append(cont.size()).append('|').append(chans.size()).append('|').append(newest.size()).append('|').append(heroGame != null ? heroGame.id : "-");
+        for (Sports.Game g : games) st.append(g.id).append(g.state).append(g.home.score).append(g.away.score);
         for (Vod.Resume r : cont) st.append(r.key).append(r.pos / 60000);
-        for (Catalog.Ch c : favs) { Xtream.Prog n = Epg.now(c.id); st.append(n != null ? n.title : "-"); }
+        for (Catalog.Ch c : chans) { Xtream.Prog n = Epg.now(c.id); st.append(n != null ? n.title : "-"); }
         st.append('|').append(Updater.available(this)).append(Updater.state);
         bindAlert();
         if (st.toString().equals(shown)) return;
-        updatePill();
         shown = st.toString();
         View keep = getCurrentFocus();
         String keepTag = keep != null && keep.getTag(0x7f0a0001) != null ? (String) keep.getTag(0x7f0a0001) : null;
 
-        // forside: nyeste film med plakat, ellers første
         Catalog.Ch pick = null;
-        long tNow = System.currentTimeMillis();
-        for (Search.Hit x : sport) if (x.start <= tNow && x.stop > tNow) { pick = Catalog.byId.get(x.chId); if (pick != null) { heroEvent = x; break; } }
-        if (pick == null) { heroEvent = null; for (Integer id : Catalog.history(this)) { pick = Catalog.byId.get(id); if (pick != null) break; } }
-        if (pick == null && !favs.isEmpty()) pick = favs.get(0);
+        if (heroGame != null) pick = liveStreams.get(heroGame.id + "|" + heroGame.league).get(0).ch;
+        if (pick == null) for (Integer id : Catalog.history(this)) { pick = Catalog.byId.get(id); if (pick != null) break; }
+        if (pick == null && !chans.isEmpty()) pick = chans.get(0);
         if (pick != null) setLive(pick);
+        updatePill();
 
         while (page.getChildCount() > 1) page.removeViewAt(1);
         View restore = null;
+        if (!games.isEmpty()) {
+            LinearLayout r = row("Dine kampe", games.get(0).live());
+            boolean spoil = Sports.spoilerFree(this);
+            for (final Sports.Game g : games) {
+                String title = g.title != null ? g.title : g.home.shortName + "  –  " + g.away.shortName;
+                if (!spoil && g.live() && g.title == null && g.home.score >= 0) title = g.home.shortName + "  " + g.home.score + " – " + g.away.score + "  " + g.away.shortName;
+                String sub = (g.live() ? "● LIVE " + Sports.status(g) : g.allDay ? "Hele dagen" : Sports.status(g)) + "  ·  " + (g.title != null && g.sub != null ? g.sub : g.leagueName);
+                String logo = g.home.logo != null && !g.home.logo.isEmpty() ? g.home.logo : null;
+                LinearLayout c = logo != null ? Poster.logoCard(this, px, px.p(390), px.p(219), logo, title, sub, 0, null)
+                        : Poster.card(this, px, px.p(390), px.p(219), null, title, sub, 0, null);
+                View box = Poster.box(c);
+                box.setTag(0x7f0a0001, "g" + g.id);
+                box.setOnClickListener(v -> startActivity(new Intent(this, MatchActivity.class).putExtra("key", g.id + "|" + g.league)));
+                add(r, c);
+                if (("g" + g.id).equals(keepTag)) restore = box;
+            }
+        }
+        if (!chans.isEmpty()) {
+            LinearLayout r = row(Catalog.favorites(this).isEmpty() ? "Senest sete kanaler" : "Dine kanaler", false);
+            final int[] ids = new int[chans.size()];
+            for (int i = 0; i < ids.length; i++) ids[i] = chans.get(i).id;
+            long t = System.currentTimeMillis();
+            for (int i = 0; i < chans.size(); i++) {
+                final int idx = i;
+                Catalog.Ch ch = chans.get(i);
+                Epg.want(this, ch.id);
+                Xtream.Prog n = Epg.now(ch.id);
+                String et = Ev.eventTitle(ch);
+                LinearLayout c = Poster.logoCard(this, px, px.p(390), px.p(219), ch.logo, et != null ? et : ch.name, et != null ? Ev.channelLabel(ch) : n != null ? n.title : " ", n != null ? n.progress(t) : 0, null);
+                View box = Poster.box(c);
+                box.setTag(0x7f0a0001, "l" + ch.id);
+                box.setOnClickListener(v -> startActivity(new Intent(this, PlayerActivity.class).putExtra("ids", ids).putExtra("i", idx).putExtra("cat", LiveActivity.FAV)));
+                add(r, c);
+                if (("l" + ch.id).equals(keepTag)) restore = box;
+            }
+        }
         if (!cont.isEmpty()) {
             LinearLayout r = row("Fortsæt", false);
             for (final Vod.Resume x : cont) {
@@ -257,39 +332,7 @@ public class HomeActivity extends Activity {
                 if (("r" + x.key).equals(keepTag)) restore = box;
             }
         }
-        if (!sport.isEmpty()) {
-            LinearLayout r = row("Sport i dag", true);
-            long t0 = System.currentTimeMillis();
-            for (final Search.Hit x : sport) {
-                float p = x.start <= t0 ? Math.min(1f, (t0 - x.start) / (float) Math.max(1, x.stop - x.start)) : 0;
-                LinearLayout c = Poster.logoCard(this, px, px.p(390), px.p(219), x.img, x.name, x.sub, p, null);
-                View box = Poster.box(c);
-                box.setTag(0x7f0a0001, "s" + x.chId + x.name);
-                box.setOnClickListener(v -> playChannel(x.chId));
-                add(r, c);
-                if (("s" + x.chId + x.name).equals(keepTag)) restore = box;
-            }
-        }
-        if (!favs.isEmpty()) {
-            LinearLayout r = row(Catalog.favorites(this).isEmpty() ? "Live nu" : "Live nu · favoritter", true);
-            final int[] ids = new int[favs.size()];
-            for (int i = 0; i < ids.length; i++) ids[i] = favs.get(i).id;
-            long t = System.currentTimeMillis();
-            for (int i = 0; i < Math.min(16, favs.size()); i++) {
-                final int idx = i;
-                Catalog.Ch ch = favs.get(i);
-                Epg.want(this, ch.id);
-                Xtream.Prog n = Epg.now(ch.id);
-                LinearLayout c = Poster.logoCard(this, px, px.p(390), px.p(219), ch.logo, ch.name, n != null ? n.title : " ", n != null ? n.progress(t) : 0, null);
-                View box = Poster.box(c);
-                box.setTag(0x7f0a0001, "l" + ch.id);
-                box.setOnClickListener(v -> startActivity(new Intent(this, PlayerActivity.class).putExtra("ids", ids).putExtra("i", idx).putExtra("cat", LiveActivity.FAV)));
-                add(r, c);
-                if (("l" + ch.id).equals(keepTag)) restore = box;
-            }
-        }
-        restore = posterRow("Nyt i film", movies, keepTag, restore);
-        restore = posterRow("Nyt i serier", series, keepTag, restore);
+        restore = posterRow("Nyt i film og serier", newest, keepTag, restore);
         View spacer = new View(this);
         page.addView(spacer, new LinearLayout.LayoutParams(1, px.p(60)));
         if (restore != null) restore.requestFocus();
@@ -355,28 +398,36 @@ public class HomeActivity extends Activity {
         Catalog.Cat k = Catalog.cats.get(ch.cat);
         Xtream.Prog n = Epg.now(ch.id), x = Epg.next(ch.id);
         long t = System.currentTimeMillis();
-        String ttl = heroEvent != null ? heroEvent.name : n != null ? n.title : ch.name;
-        long st = heroEvent != null ? heroEvent.start : n != null ? n.start : 0, en = heroEvent != null ? heroEvent.stop : n != null ? n.stop : 0;
-        kicker.setText(("LIVE · " + (heroEvent != null && k != null ? k.name : ch.name)).toUpperCase(Fmt.DA));
+        final Sports.Game hg = heroGame;
+        String evTitle = Ev.eventTitle(ch), label = Ev.channelLabel(ch);
+        String ttl = hg != null ? (hg.title != null ? hg.title : hg.home.shortName + " – " + hg.away.shortName) : evTitle != null ? evTitle : n != null ? n.title : ch.name;
+        long st = hg != null ? hg.start : n != null ? n.start : 0, en = hg != null ? hg.start + 2 * 3600_000L : n != null ? n.stop : 0;
+        kicker.setText((hg != null ? "LIVE · " + hg.leagueName + " · " + label : "SIDST SET · " + label).toUpperCase(Fmt.DA));
         title.setText(ttl);
         heroStart.setText(st > 0 ? Fmt.hm(st) : "");
         heroEnd.setText(en > 0 ? Fmt.hm(en) : "");
         heroBar.setVisibility(st > 0 ? View.VISIBLE : View.INVISIBLE);
         heroBar.set(st > 0 ? (t - st) / (float) Math.max(1, en - st) : 0);
-        meta.setText(heroEvent != null ? "Kamp i dag" : x != null ? "Derefter " + Fmt.hm(x.start) + "  " + x.title : k != null ? k.name : "");
-        plot.setText(heroEvent == null && n != null && n.desc != null ? n.desc : "");
-        if (changed || buttons.getChildCount() == 0) {
+        meta.setText(hg != null ? (hg.live() ? Sports.status(hg) : "") : x != null ? "Derefter " + Fmt.hm(x.start) + "  " + x.title : k != null ? k.name : "");
+        plot.setText(hg == null && n != null && n.desc != null ? n.desc : "");
+        if (changed || buttons.getChildCount() == 0 || (hg != null) != heroWasGame) {
+            heroWasGame = hg != null;
             buttons.removeAllViews();
-            TextView watch = Ui.pill(this, px, "▶  Se nu");
-            watch.setOnClickListener(v -> playChannel(ch.id));
+            TextView watch = Ui.pill(this, px, hg != null ? "▶  Se kampen" : "▶  Se videre");
+            watch.setOnClickListener(v -> { if (hg != null) playGame(hg); else playChannel(ch.id); });
             buttons.addView(watch);
-            TextView guide = Ui.pill(this, px, "Guide");
-            guide.setOnClickListener(v -> startActivity(new Intent(this, LiveActivity.class).putExtra("catName", k != null ? k.name : null)));
+            TextView guide = Ui.pill(this, px, hg != null ? "Kampside" : "Guide");
+            guide.setOnClickListener(v -> {
+                if (hg != null) startActivity(new Intent(this, MatchActivity.class).putExtra("key", hg.id + "|" + hg.league));
+                else startActivity(new Intent(this, LiveActivity.class).putExtra("catName", k != null ? k.name : null));
+            });
             LinearLayout.LayoutParams gl = new LinearLayout.LayoutParams(-2, -2);
             gl.leftMargin = px.p(18);
             buttons.addView(guide, gl);
             upd = null;
             updatePill();
+            View f = getCurrentFocus();
+            if (f == null || !f.isShown()) buttons.getChildAt(0).requestFocus();
         }
         if (changed) { previewing = null; video.setAlpha(0f); h.removeCallbacks(startPreview); h.postDelayed(startPreview, 800); }
     }
@@ -401,6 +452,16 @@ public class HomeActivity extends Activity {
         LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(-2, -2);
         l.leftMargin = px.p(18);
         buttons.addView(upd, l);
+    }
+
+    /** Kampen på bedste stream; de andre er reserver, hvis signalet forsvinder. */
+    private void playGame(Sports.Game g) {
+        List<Match.Stream> l = liveStreams.get(g.id + "|" + g.league);
+        if (l == null || l.isEmpty()) { startActivity(new Intent(this, MatchActivity.class).putExtra("key", g.id + "|" + g.league)); return; }
+        int[] ids = new int[l.size()];
+        for (int i = 0; i < ids.length; i++) ids[i] = l.get(i).ch.id;
+        startActivity(new Intent(this, PlayerActivity.class).putExtra("ids", ids).putExtra("i", 0).putExtra("failover", true)
+                .putExtra("title", g.title != null ? g.title : g.home.shortName + " – " + g.away.shortName));
     }
 
     /** Afspil en kanal sammen med resten af dens gruppe, så ▴▾ zapper videre. */
