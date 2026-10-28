@@ -111,6 +111,16 @@ final class Web {
                     String ip = form.get("ip"), name = form.get("name");
                     String res = ip == null ? "Intet tv valgt." : Share.send(c, ip);
                     flash = (res.startsWith("Logget ind") ? "✅ " + (name != null ? name + ": " : "") : "⚠️ " + (name != null ? name + ": " : "")) + res;
+                } else if (path.equals("/sport")) {
+                    Sports.setFavTeams(c, form.containsKey("teams") ? form.get("teams") : "");
+                    java.util.List<String> lg = new java.util.ArrayList<>(), sp = new java.util.ArrayList<>();
+                    for (Map.Entry<String, String> e : form.entrySet()) {
+                        if (e.getKey().startsWith("lg_")) lg.add(e.getKey().substring(3));
+                        if (e.getKey().startsWith("sp_")) sp.add(e.getKey().substring(3));
+                    }
+                    Sports.setFavLeagues(c, lg);
+                    Sports.setFavSports(c, sp);
+                    flash = "✅ Sport er opdateret. Dine hold og turneringer står nu øverst under Sport → Mine kampe.";
                 } else if (path.equals("/alts")) {
                     Cred cr = Cred.load(c);
                     cr.alts = Cred.parseAlts(form.get("alts"));
@@ -185,7 +195,8 @@ final class Web {
             + "li img{width:44px;height:30px;object-fit:contain;background:#000;border-radius:6px}li .n{flex:1;min-width:0}li .n b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
             + "li .n small{color:#888}form{margin:0}.star{background:#2c2c30;color:#fff;min-width:44px}.star.on{background:#ffd60a;color:#000}"
             + ".ic{background:#2c2c30;color:#ddd;min-width:40px;padding:8px}.empty{color:#888;padding:14px}.bar{display:flex;gap:8px}.bar>*{flex:1}"
-            + ".out{background:transparent;color:#ff6b6b;margin-top:30px}</style></head><body><main>"
+            + ".out{background:transparent;color:#ff6b6b;margin-top:30px}.checks{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px}"
+            + ".chk{display:flex;align-items:center;gap:10px;font-weight:500;margin:0;padding:10px 12px;border-radius:10px;background:#17181c}.chk input{width:22px;height:22px}</style></head><body><main>"
             + (msg != null ? "<div class=msg role=status>" + esc(msg) + "</div>" : "");
     }
 
@@ -269,6 +280,25 @@ final class Web {
             }
             if (shown == 0) h.append("<li class=empty>Ingen kanaler fundet.</li>");
         } else h.append("<li class=empty>Søg efter et navn eller vælg en gruppe.</li>");
+        // Sport: favorithold, turneringer og sportsgrene
+        h.append("<h2>Sport</h2><p>Dine hold og turneringer står øverst under Sport → Mine kampe og på Hjem.</p>")
+         .append("<form method=post action=/sport><label for=teams>Mine hold (ét pr. linje)</label><textarea id=teams name=teams rows=5 placeholder='Fx Sønderjyske&#10;Liverpool&#10;FC Barcelona'>")
+         .append(esc(android.text.TextUtils.join("\n", Sports.favTeams(c)))).append("</textarea><label>Fodbold-turneringer</label><div class=checks>");
+        java.util.List<String> fl = Sports.favLeagues(c);
+        java.util.List<String[]> leagues = new java.util.ArrayList<>();
+        for (Sports.League l : Sports.LEAGUES) leagues.add(new String[]{l.code, l.name});
+        for (String[] gd : Sports.GUIDE) leagues.add(1, new String[]{gd[0], gd[1]});
+        for (String[] l : leagues) {
+            if (l[0].equals("den.cup")) continue; // findes ikke hos ESPN; Pokalen kommer fra kanalerne
+            h.append("<label class=chk><input type=checkbox name=\"lg_").append(esc(l[0])).append("\"").append(fl.contains(l[0]) ? " checked" : "").append("> ").append(esc(l[1])).append("</label>");
+        }
+        h.append("</div><label>Andre sportsgrene</label><div class=checks>");
+        java.util.List<String> fs = Sports.favSports(c);
+        for (String[] s : Sports.SPORTS) {
+            if (s[0].equals(Sports.FOOTBALL)) continue;
+            h.append("<label class=chk><input type=checkbox name=\"sp_").append(s[0]).append("\"").append(fs.contains(s[0]) ? " checked" : "").append("> ").append(esc(s[1])).append("</label>");
+        }
+        h.append("</div><button class=main>Gem sport</button></form>");
         Cred cur = Cred.load(c);
         h.append("<h2>Del login med andre tv'er</h2><p>Andre tv'er i huset med Vores TV, som ikke er logget ind, kan få dette tv's login med ét tryk.</p>");
         if (q.containsKey("find")) {

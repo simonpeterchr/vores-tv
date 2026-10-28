@@ -125,10 +125,11 @@ final class Search {
             Hit h = new Hit();
             h.kind = "channel"; h.chId = ch.id; h.name = ch.name; h.img = ch.logo; h.sub = k != null ? k.name : "";
             // PPV-kanaler bærer kampen i navnet: "Serie A: Sassuolo-Lazio @ 2026-10-27 20:45"
-            java.util.regex.Matcher ev = EVENT.matcher(ch.name);
-            if (ev.find()) {
-                h.name = ch.name.substring(0, ev.start()).trim();
-                try { h.start = EVENT_FMT.parse(ev.group(1) + " " + ev.group(2)).getTime(); h.sub = when(h.start) + "  ·  " + h.sub; } catch (Exception ignored) { }
+            Ev ev = Ev.of(ch);
+            if (ev != null) {
+                h.name = Ev.nice(ev.title);
+                h.start = ev.start;
+                h.sub = when(h.start) + "  ·  " + h.sub;
             }
             (shown.contains(ch.cat) || Catalog.isFav(c, ch.id) ? out : later).add(h);
             if (out.size() >= max) break;

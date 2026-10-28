@@ -407,11 +407,10 @@ public class LiveActivity extends Activity {
         infoCh.setText((was ? "Fjernet fra favoritter · " : "★ Tilføjet til favoritter · ") + c.name);
     }
 
+    /** Bladring i guiden skifter ikke kanal – kun infoboksen følger markeringen. Kanalen skifter først ved OK. */
     private void moved() {
         clampTop();
         bindAll();
-        h.removeCallbacks(startPreview);
-        h.postDelayed(startPreview, 900);
     }
 
     private void play() {
@@ -422,8 +421,10 @@ public class LiveActivity extends Activity {
         startActivity(new Intent(this, PlayerActivity.class).putExtra("ids", ids).putExtra("i", sel).putExtra("cat", cat));
     }
 
+    /** Forhåndsvisningen viser den kanal, der sidst blev set (eller den første, hvis der ingen er). */
     private void startPreview() {
-        Catalog.Ch c = cur();
+        Catalog.Ch c = Catalog.byId.get(Catalog.lastChannel(this));
+        if (c == null) c = cur();
         if (player == null || c == null || (previewing != null && previewing.id == c.id)) return;
         previewing = c;
         triedHls = false;
@@ -535,7 +536,8 @@ public class LiveActivity extends Activity {
     private void bindInfo() {
         Catalog.Ch c = cur();
         if (c == null) { infoCh.setText(""); infoTitle.setText(list.isEmpty() ? "" : " "); infoStart.setText(""); infoEnd.setText(""); infoNext.setText(""); infoDesc.setText(""); infoBar.set(0); previewLogo.setImageDrawable(null); return; }
-        Img.load(previewLogo, c.logo, px.p(270));
+        Catalog.Ch pv = previewing != null ? previewing : Catalog.byId.get(Catalog.lastChannel(this));
+        Img.load(previewLogo, (pv != null ? pv : c).logo, px.p(270));
         List<Xtream.Prog> ps = visibleProgs(c);
         int ni = nowIndex(c);
         int fi = prog >= 0 && prog < ps.size() ? prog : ni;

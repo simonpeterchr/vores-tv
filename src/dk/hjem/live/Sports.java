@@ -289,17 +289,19 @@ final class Sports {
                 String raw = ch.raw != null ? ch.raw : ch.name;
                 Catalog.Cat cat = Catalog.cats.get(ch.cat);
                 if (!(raw.matches(gd[2]) || (cat != null && cat.name.matches(gd[2])))) continue;
-                java.util.regex.Matcher m = Search.EVENT.matcher(ch.name);
-                if (!m.find()) continue;
-                long t;
-                try { t = Search.EVENT_FMT.parse(m.group(1) + " " + m.group(2)).getTime(); } catch (Exception e) { continue; }
-                if (t < now - 3 * 3600_000L) continue;
-                addGuideGame(gd, ch.name.substring(0, m.start()), t, t + 2 * 3600_000L);
+                Ev ev = Ev.of(ch);
+                if (ev == null || ev.start < now - 3 * 3600_000L) continue;
+                addGuideGame(gd, ev.title, ev.start, ev.start + 2 * 3600_000L);
             }
-            for (Catalog.Ch ch : Match.sportsPool(c)) { // programguide
+            int wanted = 0;
+            for (Catalog.Ch ch : Match.sportsPool(c)) { // programguide: titel ELLER beskrivelse nævner turneringen
+                if (wanted++ < 200) Epg.want(c, ch.id);
                 for (Xtream.Prog p : Epg.get(ch.id)) {
-                    if (p.stop < now - 3600_000L || !(p.title.matches(gd[2]))) continue;
-                    addGuideGame(gd, p.title, p.start, p.stop);
+                    if (p.stop < now - 3600_000L) continue;
+                    boolean inTitle = p.title.matches(gd[2]), inDesc = p.desc != null && p.desc.replace('\n', ' ').matches(gd[2]);
+                    if (inTitle || inDesc) {
+                        addGuideGame(gd, inTitle ? p.title : p.title.replaceAll("(?i)^(fodbold|live|direkte)\\s*[:\\-–]\\s*", ""), p.start, p.stop);
+                    }
                 }
             }
         }
@@ -312,12 +314,12 @@ final class Sports {
         Game g = new Game();
         g.league = gd[0]; g.leagueName = gd[1]; g.start = start;
         if (m.matches()) {
-            g.home.name = g.home.shortName = m.group(1).trim();
-            g.away.name = g.away.shortName = m.group(2).trim();
-        } else { g.title = t.isEmpty() ? gd[1] : t; g.sub = gd[1]; }
+            g.home.name = g.home.shortName = Ev.nice(m.group(1).trim());
+            g.away.name = g.away.shortName = Ev.nice(m.group(2).trim());
+        } else return; // kun rigtige kampe (to hold) – ikke studie, magasiner og optakter
         long now = System.currentTimeMillis();
         g.state = now >= start && now < stop ? "in" : now >= stop ? "post" : "pre";
-        g.id = "g" + Integer.toHexString((Search.norm(t) + (start / 600_000L)).hashCode());
+        g.id = "g" + Integer.toHexString((Search.norm(t).replaceAll("\\s*(vs\\.?|v|–|-)\\s*", "-").replaceAll("[^\\p{L}0-9-]", "") + (start / 600_000L)).hashCode());
         if (!games.containsKey(g.id + "|" + g.league)) { games.put(g.id + "|" + g.league, g); Catalog.changed(); }
     }
 

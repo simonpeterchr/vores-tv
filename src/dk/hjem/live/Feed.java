@@ -39,12 +39,11 @@ final class Feed {
             boolean sportGroup = k != null && k.name.matches(SPORT);
             for (Catalog.Ch ch : Catalog.inCategory(g)) {
                 if (separator(ch)) continue;
-                Matcher m = Search.EVENT.matcher(ch.name);
-                if (m.find()) { // PPV: kampen står i kanalnavnet
-                    long t;
-                    try { t = Search.EVENT_FMT.parse(m.group(1) + " " + m.group(2)).getTime(); } catch (Exception e) { continue; }
+                Ev ev = Ev.of(ch);
+                if (ev != null) { // PPV: kampen står i kanalnavnet
+                    long t = ev.start;
                     if (t + 2 * 3600_000L < now || t > until) continue; // slut (antaget 2 timer) eller ikke i dag
-                    String name = ch.name.substring(0, m.start()).trim();
+                    String name = Ev.nice(ev.title.replaceAll("(?i)^(betano pokalen|oddset pokalen)\\s+", ""));
                     if (!seen.add(name.toLowerCase(Locale.ROOT))) continue;
                     Search.Hit h = new Search.Hit();
                     h.kind = "channel"; h.chId = ch.id; h.name = name; h.img = ch.logo; h.start = t; h.stop = t + 2 * 3600_000L;

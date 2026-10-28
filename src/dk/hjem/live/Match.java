@@ -185,9 +185,13 @@ final class Match {
         s.ch = ch; s.confidence = conf; s.why = why;
         String raw = ch.raw != null ? ch.raw : ch.name;
         s.quality = quality(raw);
-        String p = Names.prefix(raw);
+        // land: "… | DK: VIAPLAY PPV 7" står sidst i PPV-navne; ellers gruppens eller navnets præfiks
+        String p = "";
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\b([A-Z]{2}):\\s*\\S[^|]*$").matcher(raw);
+        if (m.find()) p = m.group(1);
         Catalog.Cat k = Catalog.cats.get(ch.cat);
-        if (p.isEmpty() && k != null) p = k.prefix;
+        if (p.isEmpty() && k != null && k.prefix.length() == 2) p = k.prefix;
+        if (p.isEmpty()) { String q = Names.prefix(raw); if (q.length() == 2) p = q; }
         s.country = p;
         out.add(s);
     }

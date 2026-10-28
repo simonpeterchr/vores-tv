@@ -32,13 +32,21 @@ public class SportActivity extends Activity {
     private boolean firstFocus;
     private final Handler h = new Handler(Looper.getMainLooper());
     private final Runnable rebuild = this::rebuild;
-    private final Runnable onData = () -> { h.removeCallbacks(rebuild); h.postDelayed(rebuild, 300); };
+    private final Runnable onData = () -> { h.removeCallbacks(rebuild); h.postDelayed(rebuild, 300); scheduleGuide(); };
+    private void scheduleGuide() { h.removeCallbacks(guide); h.postDelayed(guide, 2_000); }
+    private volatile boolean guiding;
+    /** Find kampe i kanalnavne og programguide (fx Betano Pokalen), når der er kommet nye data. */
+    private final Runnable guide = () -> {
+        if (guiding) return;
+        guiding = true;
+        final android.content.Context app = getApplicationContext();
+        new Thread(() -> { try { Sports.guide(app); } finally { guiding = false; } }, "sport-guide").start();
+    };
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             top.clock.setText(Fmt.clock());
             Sports.refresh();
-            final android.content.Context app = getApplicationContext();
-            new Thread(() -> Sports.guide(app), "sport-guide").start();
+            guide.run();
             h.postDelayed(this, 30_000);
         }
     };
@@ -155,7 +163,7 @@ public class SportActivity extends Activity {
         View keep = getCurrentFocus();
         boolean inRows = keep != null && keep.getTag(0x7f0a0003) != null;
         rows.removeAllViews();
-        status.setText(Sports.games.isEmpty() ? "Henter kampprogram …" : list.isEmpty() ? "Intet på programmet her de næste dage." : list.size() + (list.size() == 1 ? " begivenhed" : " begivenheder"));
+        status.setText(MINE.equals(filter) ? "Vælg dine hold og turneringer på telefonen: " + Web.address().replace("http://", "") + "  ·  " + (list.size() + " begivenheder") : Sports.games.isEmpty() ? "Henter kampprogram …" : list.isEmpty() ? "Intet på programmet her de næste dage." : list.size() + (list.size() == 1 ? " begivenhed" : " begivenheder"));
         // grupper: Live nu, I dag, I morgen, ugedage
         Map<String, List<Sports.Game>> secs = new LinkedHashMap<>();
         for (Sports.Game g : list) {
