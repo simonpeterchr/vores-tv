@@ -191,6 +191,11 @@ public class LiveActivity extends Activity {
         player.setVideoTextureView(video);
         player.addListener(new Player.Listener() {
             @Override public void onRenderedFirstFrame() { video.animate().alpha(1f).setDuration(250).start(); }
+            // Spiller der noget i den lille skærm, må pauseskærmen ikke komme
+            @Override public void onIsPlayingChanged(boolean playing) {
+                if (playing) getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                else getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            }
             @Override public void onPlayerError(PlaybackException e) {
                 if (!triedHls && previewing != null) { triedHls = true; Play.live(player, Cred.load(LiveActivity.this), previewing, true); }
             }
@@ -205,6 +210,7 @@ public class LiveActivity extends Activity {
         h.removeCallbacks(tick);
         h.removeCallbacks(startPreview);
         if (player != null) { player.release(); player = null; }
+        getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         previewing = null;
         video.setAlpha(0f);
     }
