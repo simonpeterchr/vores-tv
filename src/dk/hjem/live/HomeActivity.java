@@ -58,8 +58,9 @@ public class HomeActivity extends Activity {
     private boolean firstFocusDone;
     private String shown = "";
     private final Handler h = new Handler(Looper.getMainLooper());
-    private final Runnable rebuild = this::rebuild;
-    private final Runnable onData = () -> { h.removeCallbacks(rebuild); h.postDelayed(rebuild, 200); };
+    private final Runnable rebuild = () -> { rebuildQueued = false; rebuild(); };
+    private boolean rebuildQueued;
+    private final Runnable onData = () -> { if (!rebuildQueued) { rebuildQueued = true; h.postDelayed(rebuild, 500); } }; // samlet, højst ca. 2 gange i sekundet
     private final Runnable tick = new Runnable() { @Override public void run() {
         top.clock.setText(Fmt.clock());
         if (heroCh != null) setLive(heroCh);
@@ -145,6 +146,8 @@ public class HomeActivity extends Activity {
         ht.addView(buttons, lp(-2, 26));
         heroBox.addView(ht, Ui.at(px.p(848), px.p(158), px.p(976), -2));
         page.addView(heroBox, new LinearLayout.LayoutParams(-1, px.p(600)));
+        for (int i = 0; i < 4; i++) { secs[i] = new LinearLayout(this); secs[i].setOrientation(LinearLayout.VERTICAL); secs[i].setClipChildren(false); page.addView(secs[i]); }
+        page.addView(new View(this), new LinearLayout.LayoutParams(1, px.p(60)));
         root.addView(sv, new FrameLayout.LayoutParams(-1, -1));
 
         View topShade = new View(this);
@@ -247,103 +250,153 @@ public class HomeActivity extends Activity {
         return out.size() > 16 ? out.subList(0, 16) : out;
     }
 
+    // Rækkerne bygges hver for sig og kun når deres indhold har ændret sig (ellers hakker siden, mens data kommer ind)
+    private final LinearLayout[] secs = new LinearLayout[4]; // kampe, kanaler, fortsæt, nyt
+    private final String[] sigs = {"", "", "", ""};
+    private List<Vod.Item> newest = new ArrayList<>();
+    private String newestSig = "";
+
+    private List<Vod.Item> newest() {
+        StringBuilder k = new StringBuilder();
+        for (String kind : new String[]{Vod.MOVIE, Vod.SERIES}) for (String g : Vod.shownGroups(this, kind)) k.append(Vod.inCategory(this, kind, g).size()).append(',');
+        if (k.toString().equals(newestSig)) return newest;
+        newestSig = k.toString();
+        List<Vod.Item> out = new ArrayList<>(), nm = Feed.newest(this, Vod.MOVIE, 12), ns = Feed.newest(this, Vod.SERIES, 12);
+        for (int i = 0; i < Math.max(nm.size(), ns.size()); i++) { if (i < nm.size()) out.add(nm.get(i)); if (i < ns.size()) out.add(ns.get(i)); }
+        return newest = out;
+    }
+
+    // Data samles i baggrunden; skærmen bygger kun rækkerne, når data er klar (ingen tunge sorteringer på skærmens tråd)
+    private static final java.util.concurrent.ExecutorService gather = Bg.pool(1, "home-data");
+    private volatile boolean gathering, gatherAgain;
+
     private void rebuild() {
-        List<Vod.Resume> cont = Vod.continueList(this, null);
-        List<Catalog.Ch> chans = Feed.liveNow(this, 16);
-        List<Sports.Game> games = myGames();
-        List<Vod.Item> newest = new ArrayList<>();
-        List<Vod.Item> nm = Feed.newest(this, Vod.MOVIE, 12), ns = Feed.newest(this, Vod.SERIES, 12);
-        for (int i = 0; i < Math.max(nm.size(), ns.size()); i++) { if (i < nm.size()) newest.add(nm.get(i)); if (i < ns.size()) newest.add(ns.get(i)); }
+        if (gathering) { gatherAgain = true; return; }
+        gathering = true;
+        final android.content.Context app = this;
+        gather.execute(() -> {
+            final List<Vod.Resume> cont = Vod.continueList(app, null);
+            final List<Catalog.Ch> chans = Feed.liveNow(app, 16);
+            final List<Sports.Game> games = myGames();
+            final List<Vod.Item> nw = newest();
+            h.post(() -> {
+                gathering = false;
+                if (!isFinishing()) apply(cont, chans, games, nw);
+                if (gatherAgain) { gatherAgain = false; onData.run(); }
+            });
+        });
+    }
+
+    private void apply(List<Vod.Resume> cont, List<Catalog.Ch> chans, List<Sports.Game> games, List<Vod.Item> nw) {
 
         // forsiden: en af dine kampe live (med streams), ellers den kanal du sidst så
-        heroGame = null;
+        Sports.Game hgNew = null;
         for (Sports.Game g : games) {
             if (!g.live()) continue;
             streamsLater(g);
             List<Match.Stream> l = liveStreams.get(g.id + "|" + g.league);
-            if (l != null && !l.isEmpty()) { heroGame = g; break; }
+            if (l != null && !l.isEmpty()) { hgNew = g; break; }
         }
-        StringBuilder st = new StringBuilder();
-        st.append(cont.size()).append('|').append(chans.size()).append('|').append(newest.size()).append('|').append(heroGame != null ? heroGame.id : "-");
-        for (Sports.Game g : games) st.append(g.id).append(g.state).append(g.home.score).append(g.away.score);
-        for (Vod.Resume r : cont) st.append(r.key).append(r.pos / 60000);
-        for (Catalog.Ch c : chans) { Xtream.Prog n = Epg.now(c.id); st.append(n != null ? n.title : "-"); }
-        st.append('|').append(Updater.available(this)).append(Updater.state);
-        bindAlert();
-        if (st.toString().equals(shown)) return;
-        shown = st.toString();
-        View keep = getCurrentFocus();
-        String keepTag = keep != null && keep.getTag(0x7f0a0001) != null ? (String) keep.getTag(0x7f0a0001) : null;
-
+        heroGame = hgNew;
         Catalog.Ch pick = null;
         if (heroGame != null) pick = liveStreams.get(heroGame.id + "|" + heroGame.league).get(0).ch;
         if (pick == null) for (Integer id : Catalog.history(this)) { pick = Catalog.byId.get(id); if (pick != null) break; }
         if (pick == null && !chans.isEmpty()) pick = chans.get(0);
         if (pick != null) setLive(pick);
         updatePill();
+        bindAlert();
 
-        while (page.getChildCount() > 1) page.removeViewAt(1);
+        View keep = getCurrentFocus();
+        String keepTag = keep != null && keep.getTag(0x7f0a0001) != null ? (String) keep.getTag(0x7f0a0001) : null;
         View restore = null;
-        if (!games.isEmpty()) {
-            LinearLayout r = row("Dine kampe", games.get(0).live());
-            boolean spoil = Sports.spoilerFree(this);
-            for (final Sports.Game g : games) {
-                String title = g.title != null ? g.title : g.home.shortName + "  –  " + g.away.shortName;
-                if (!spoil && g.live() && g.title == null && g.home.score >= 0) title = g.home.shortName + "  " + g.home.score + " – " + g.away.score + "  " + g.away.shortName;
-                String sub = (g.live() ? "● LIVE " + Sports.status(g) : g.allDay ? "Hele dagen" : Sports.status(g)) + "  ·  " + (g.title != null && g.sub != null ? g.sub : g.leagueName);
-                String logo = g.home.logo != null && !g.home.logo.isEmpty() ? g.home.logo : null;
-                LinearLayout c = logo != null ? Poster.logoCard(this, px, px.p(390), px.p(219), logo, title, sub, 0, null)
-                        : Poster.card(this, px, px.p(390), px.p(219), null, title, sub, 0, null);
-                View box = Poster.box(c);
-                box.setTag(0x7f0a0001, "g" + g.id);
-                box.setOnClickListener(v -> startActivity(new Intent(this, MatchActivity.class).putExtra("key", g.id + "|" + g.league)));
-                add(r, c);
-                if (("g" + g.id).equals(keepTag)) restore = box;
+        boolean spoil = Sports.spoilerFree(this);
+
+        // 1) Dine kampe
+        StringBuilder sg = new StringBuilder().append(spoil);
+        for (Sports.Game g : games) sg.append(g.id).append(g.state).append(g.home.score).append(g.away.score).append(g.clock);
+        if (!sg.toString().equals(sigs[0])) {
+            sigs[0] = sg.toString();
+            secs[0].removeAllViews();
+            if (!games.isEmpty()) {
+                LinearLayout r = row(secs[0], "Dine kampe", games.get(0).live());
+                for (final Sports.Game g : games) {
+                    String title = g.title != null ? g.title : g.home.shortName + "  –  " + g.away.shortName;
+                    if (!spoil && g.live() && g.title == null && g.home.score >= 0) title = g.home.shortName + "  " + g.home.score + " – " + g.away.score + "  " + g.away.shortName;
+                    String sub = (g.live() ? "● LIVE " + Sports.status(g) : g.allDay ? "Hele dagen" : Sports.status(g)) + "  ·  " + (g.title != null && g.sub != null ? g.sub : g.leagueName);
+                    String logo = g.home.logo != null && !g.home.logo.isEmpty() ? g.home.logo : null;
+                    LinearLayout c = logo != null ? Poster.logoCard(this, px, px.p(390), px.p(219), logo, title, sub, 0, null)
+                            : Poster.card(this, px, px.p(390), px.p(219), null, title, sub, 0, null);
+                    View box = Poster.box(c);
+                    box.setTag(0x7f0a0001, "g" + g.id);
+                    box.setOnClickListener(v -> startActivity(new Intent(this, MatchActivity.class).putExtra("key", g.id + "|" + g.league)));
+                    add(r, c);
+                    if (("g" + g.id).equals(keepTag)) restore = box;
+                }
             }
         }
-        if (!chans.isEmpty()) {
-            LinearLayout r = row(Catalog.favorites(this).isEmpty() ? "Senest sete kanaler" : "Dine kanaler", false);
-            final int[] ids = new int[chans.size()];
-            for (int i = 0; i < ids.length; i++) ids[i] = chans.get(i).id;
-            long t = System.currentTimeMillis();
-            for (int i = 0; i < chans.size(); i++) {
-                final int idx = i;
-                Catalog.Ch ch = chans.get(i);
-                Epg.want(this, ch.id);
-                Xtream.Prog n = Epg.now(ch.id);
-                String et = Ev.eventTitle(ch);
-                LinearLayout c = Poster.logoCard(this, px, px.p(390), px.p(219), ch.logo, et != null ? et : ch.name, et != null ? Ev.channelLabel(ch) : n != null ? n.title : " ", n != null ? n.progress(t) : 0, null);
-                View box = Poster.box(c);
-                box.setTag(0x7f0a0001, "l" + ch.id);
-                box.setOnClickListener(v -> startActivity(new Intent(this, PlayerActivity.class).putExtra("ids", ids).putExtra("i", idx).putExtra("cat", LiveActivity.FAV)));
-                add(r, c);
-                if (("l" + ch.id).equals(keepTag)) restore = box;
+        // 2) Kanaler
+        StringBuilder sc = new StringBuilder().append(Catalog.favorites(this).isEmpty());
+        for (Catalog.Ch c : chans) sc.append(c.id).append(',');
+        sc.append(System.currentTimeMillis() / 30_000L); // programtitler opdateres hvert 30. sek., ikke for hvert program der kommer ind
+        if (!sc.toString().equals(sigs[1])) {
+            sigs[1] = sc.toString();
+            secs[1].removeAllViews();
+            if (!chans.isEmpty()) {
+                LinearLayout r = row(secs[1], Catalog.favorites(this).isEmpty() ? "Senest sete kanaler" : "Dine kanaler", false);
+                final int[] ids = new int[chans.size()];
+                for (int i = 0; i < ids.length; i++) ids[i] = chans.get(i).id;
+                long t = System.currentTimeMillis();
+                for (int i = 0; i < chans.size(); i++) {
+                    final int idx = i;
+                    Catalog.Ch ch = chans.get(i);
+                    Epg.want(this, ch.id);
+                    Xtream.Prog n = Epg.now(ch.id);
+                    String et = Ev.eventTitle(ch);
+                    LinearLayout c = Poster.logoCard(this, px, px.p(390), px.p(219), ch.logo, et != null ? et : ch.name, et != null ? Ev.channelLabel(ch) : n != null ? n.title : " ", n != null ? n.progress(t) : 0, null);
+                    View box = Poster.box(c);
+                    box.setTag(0x7f0a0001, "l" + ch.id);
+                    box.setOnClickListener(v -> startActivity(new Intent(this, PlayerActivity.class).putExtra("ids", ids).putExtra("i", idx).putExtra("cat", LiveActivity.FAV)));
+                    add(r, c);
+                    if (("l" + ch.id).equals(keepTag)) restore = box;
+                }
             }
         }
-        if (!cont.isEmpty()) {
-            LinearLayout r = row("Fortsæt", false);
-            for (final Vod.Resume x : cont) {
-                String sub = Vod.SERIES.equals(x.kind) ? x.sub : Fmt.mins(x.dur - x.pos) + " tilbage";
-                LinearLayout c = Poster.card(this, px, px.p(390), px.p(219), x.poster, x.title, sub, x.progress(), null);
-                View box = Poster.box(c);
-                box.setTag(0x7f0a0001, "r" + x.key);
-                box.setOnClickListener(v -> resume(x));
-                add(r, c);
-                if (("r" + x.key).equals(keepTag)) restore = box;
+        // 3) Fortsæt
+        StringBuilder so = new StringBuilder();
+        for (Vod.Resume x : cont) so.append(x.key).append(x.pos / 60000);
+        if (!so.toString().equals(sigs[2])) {
+            sigs[2] = so.toString();
+            secs[2].removeAllViews();
+            if (!cont.isEmpty()) {
+                LinearLayout r = row(secs[2], "Fortsæt", false);
+                for (final Vod.Resume x : cont) {
+                    String sub = Vod.SERIES.equals(x.kind) ? x.sub : Fmt.mins(x.dur - x.pos) + " tilbage";
+                    LinearLayout c = Poster.card(this, px, px.p(390), px.p(219), x.poster, x.title, sub, x.progress(), null);
+                    View box = Poster.box(c);
+                    box.setTag(0x7f0a0001, "r" + x.key);
+                    box.setOnClickListener(v -> resume(x));
+                    add(r, c);
+                    if (("r" + x.key).equals(keepTag)) restore = box;
+                }
             }
         }
-        restore = posterRow("Nyt i film og serier", newest, keepTag, restore);
-        View spacer = new View(this);
-        page.addView(spacer, new LinearLayout.LayoutParams(1, px.p(60)));
-        if (restore != null) restore.requestFocus();
+        // 4) Nyt
+        StringBuilder sn = new StringBuilder();
+        for (Vod.Item it : nw) sn.append(it.kind).append(it.id).append(',');
+        if (!sn.toString().equals(sigs[3])) {
+            sigs[3] = sn.toString();
+            secs[3].removeAllViews();
+            restore = posterRow(secs[3], "Nyt i film og serier", nw, keepTag, restore);
+        }
+        if (restore != null && (keep == null || !keep.isShown())) restore.requestFocus();
         else if (keep == null || !keep.isShown() || !firstFocusDone) {
             if (buttons.getChildCount() > 0) { buttons.getChildAt(0).requestFocus(); firstFocusDone = true; }
         }
     }
 
-    private View posterRow(String name, List<Vod.Item> items, String keepTag, View restore) {
+    private View posterRow(LinearLayout sec, String name, List<Vod.Item> items, String keepTag, View restore) {
         if (items.isEmpty()) return restore;
-        LinearLayout r = row(name, false);
+        LinearLayout r = row(sec, name, false);
         for (int i = 0; i < Math.min(24, items.size()); i++) {
             final Vod.Item it = items.get(i);
             LinearLayout c = Poster.card(this, px, px.p(200), px.p(300), it.poster, it.name, it.year, 0, null);
@@ -356,7 +409,7 @@ public class HomeActivity extends Activity {
         return restore;
     }
 
-    private LinearLayout row(String name, boolean live) {
+    private LinearLayout row(LinearLayout sec, String name, boolean live) {
         LinearLayout head = new LinearLayout(this);
         head.setGravity(android.view.Gravity.CENTER_VERTICAL);
         head.setPadding(px.p(96), px.p(10), 0, 0);
@@ -370,7 +423,7 @@ public class HomeActivity extends Activity {
             dl.leftMargin = px.p(15);
             head.addView(dot, dl);
         }
-        page.addView(head);
+        sec.addView(head);
         HorizontalScrollView hs = new HorizontalScrollView(this);
         hs.setHorizontalScrollBarEnabled(false);
         hs.setFocusable(false);
@@ -379,7 +432,7 @@ public class HomeActivity extends Activity {
         LinearLayout r = new LinearLayout(this);
         r.setClipChildren(false);
         hs.addView(r);
-        page.addView(hs);
+        sec.addView(hs);
         return r;
     }
 
