@@ -74,6 +74,43 @@ final class Http {
         throw new IOException("For mange redirects");
     }
 
+    /** Henter direkte til fil (via .tmp), så store svar aldrig ligger i hukommelsen. */
+    static void download(String address, java.io.File to) throws IOException {
+        URL url = new URL(address);
+        for (int hop = 0; hop < 6; hop++) {
+            HttpURLConnection c = (HttpURLConnection) url.openConnection();
+            c.setInstanceFollowRedirects(false);
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(120000);
+            c.setRequestProperty("User-Agent", UA);
+            int code = c.getResponseCode();
+            if (code >= 300 && code < 400) { String loc = c.getHeaderField("Location"); c.disconnect(); if (loc == null) throw new IOException("Redirect uden Location"); url = new URL(url, loc); continue; }
+            if (code != 200) { c.disconnect(); throw new IOException("HTTP " + code + " fra " + url.getHost()); }
+            java.io.File tmp = new java.io.File(to.getPath() + ".tmp");
+            try (InputStream in = c.getInputStream(); java.io.OutputStream out = new java.io.BufferedOutputStream(new java.io.FileOutputStream(tmp), 64 * 1024)) {
+                byte[] buf = new byte[32 * 1024];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            } finally { c.disconnect(); }
+            if (!tmp.renameTo(to)) throw new IOException("Kunne ikke gemme");
+            return;
+        }
+        throw new IOException("For mange redirects");
+    }
+
+    static android.util.JsonReader reader(java.io.File f) throws IOException {
+        return new android.util.JsonReader(new java.io.InputStreamReader(new java.io.BufferedInputStream(new java.io.FileInputStream(f), 64 * 1024), java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    /** Næste værdi som tekst (tal og tekst ens; null og objekter/lister giver ""). */
+    static String str(android.util.JsonReader r) throws IOException {
+        android.util.JsonToken t = r.peek();
+        if (t == android.util.JsonToken.NULL) { r.nextNull(); return ""; }
+        if (t == android.util.JsonToken.BEGIN_ARRAY || t == android.util.JsonToken.BEGIN_OBJECT) { r.skipValue(); return ""; }
+        if (t == android.util.JsonToken.BOOLEAN) return String.valueOf(r.nextBoolean());
+        return r.nextString();
+    }
+
     static String text(String address) throws IOException {
         return new String(bytes(address), StandardCharsets.UTF_8);
     }

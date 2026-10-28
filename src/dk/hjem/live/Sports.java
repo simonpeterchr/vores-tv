@@ -277,7 +277,7 @@ final class Sports {
 
     // ---- Turneringer ingen datakilde har (fx Oddset Pokalen): find kampene i jeres egne kanaler ----
     static final String[][] GUIDE = { // {kode, navn, søgeord (regex)}
-            {"den.pokal", "Pokalen", "(?i).*\\b(oddset pokalen|sydbank ?pokalen|landspokal\\w*|dbu pokal\\w*|pokalfodbold|pokalen)\\b.*"},
+            {"den.pokal", "Pokalen", "(?i).*\\b(betano ?pokalen|oddset pokalen|sydbank ?pokalen|landspokal\\w*|dbu pokal\\w*|pokalfodbold|pokalen)\\b.*"},
     };
     private static final java.util.regex.Pattern VS = java.util.regex.Pattern.compile("(.+?)\\s+(?:-|–|—|vs\\.?|v)\\s+(.+)");
 
@@ -306,7 +306,7 @@ final class Sports {
     }
 
     private static void addGuideGame(String[] gd, String title, long start, long stop) {
-        String t = title.replaceAll("(?i)^.*?(oddset pokalen|sydbank ?pokalen|landspokal\\w*|dbu pokal\\w*|pokalfodbold|pokalen)\\s*[:\\-–|]*\\s*", "")
+        String t = title.replaceAll("(?i)^.*?(betano ?pokalen|oddset pokalen|sydbank ?pokalen|landspokal\\w*|dbu pokal\\w*|pokalfodbold|pokalen)\\s*[:\\-–|]*\\s*", "")
                 .replaceAll("(?i)^(live|direkte)\\s*[:\\-–]\\s*", "").replaceAll("\\s*[(\\[].*$", "").trim();
         java.util.regex.Matcher m = VS.matcher(t);
         Game g = new Game();

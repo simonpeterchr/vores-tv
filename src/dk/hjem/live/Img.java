@@ -12,7 +12,7 @@ import java.util.concurrent.Executors;
 
 /** Henter kanallogoer/plakater i baggrunden med et lille hukommelses-cache. */
 final class Img {
-    private static final LruCache<String, Bitmap> cache = new LruCache<String, Bitmap>(48 * 1024 * 1024) {
+    private static final LruCache<String, Bitmap> cache = new LruCache<String, Bitmap>((int) Math.min(48L << 20, Runtime.getRuntime().maxMemory() / 10)) {
         @Override protected int sizeOf(String k, Bitmap b) { return b.getByteCount(); }
     };
     private static final ExecutorService pool = Executors.newFixedThreadPool(4);
@@ -35,6 +35,7 @@ final class Img {
                 while (o.outWidth / (s * 2) >= maxW) s *= 2;
                 o = new BitmapFactory.Options();
                 o.inSampleSize = s;
+                if (maxW >= 180) o.inPreferredConfig = Bitmap.Config.RGB_565; // plakater/baggrunde: halv hukommelse (logoer beholder gennemsigtighed)
                 bm = BitmapFactory.decodeByteArray(d, 0, d.length, o);
             } catch (Throwable ignored) { }
             final Bitmap fb = bm;

@@ -54,13 +54,13 @@ final class Catalog {
                 if (!cr.ok()) { error = null; return; }
                 File fc = new File(c.getFilesDir(), "live_categories.json"), fs = new File(c.getFilesDir(), "live_streams.json");
                 boolean fresh = !force && fs.exists() && System.currentTimeMillis() - fs.lastModified() < MAX_AGE;
-                if (fresh && !loaded) { parse(read(fc), read(fs)); changed(); return; }
+                if (fresh && !loaded) { parse(fc, fs); changed(); return; }
                 if (fresh) return;
-                if (!loaded && fs.exists()) { parse(read(fc), read(fs)); changed(); }
+                if (!loaded && fs.exists()) { parse(fc, fs); changed(); }
                 Xtream x = new Xtream(cr);
-                String jc = x.get("get_live_categories", null), js = x.get("get_live_streams", null);
-                parse(jc, js);
-                write(fc, jc); write(fs, js);
+                Http.download(x.api("get_live_categories", null), fc);
+                Http.download(x.api("get_live_streams", null), fs);
+                parse(fc, fs);
                 error = null;
                 changed();
             } catch (Exception e) {
@@ -72,44 +72,72 @@ final class Catalog {
         }, "catalog").start();
     }
 
-    private static void parse(String jc, String js) throws Exception {
+    /** Læser kanallisten bid for bid fra fil (der kan være titusinder af kanaler – må ikke fylde hukommelsen). */
+    private static void parse(File fc, File fs) throws Exception {
         Map<String, Cat> cm = new LinkedHashMap<>();
-        JSONArray ac = new JSONArray(jc);
-        for (int i = 0; i < ac.length(); i++) {
-            JSONObject o = ac.getJSONObject(i);
-            Cat k = new Cat();
-            k.id = o.optString("category_id");
-            String rn = o.optString("category_name");
-            k.prefix = Names.prefix(rn);
-            k.name = Names.group(rn);
-            cm.put(k.id, k);
+        try (android.util.JsonReader r = Http.reader(fc)) {
+            r.beginArray();
+            while (r.hasNext()) {
+                Cat k = new Cat();
+                String rn = "";
+                r.beginObject();
+                while (r.hasNext()) {
+                    String n = r.nextName();
+                    if (n.equals("category_id")) k.id = Http.str(r);
+                    else if (n.equals("category_name")) rn = Http.str(r);
+                    else r.skipValue();
+                }
+                r.endObject();
+                k.prefix = Names.prefix(rn);
+                k.name = Names.group(rn);
+                if (k.id != null) cm.put(k.id, k);
+            }
+            r.endArray();
         }
-        JSONArray as = new JSONArray(js);
-        List<Ch> list = new ArrayList<>(as.length());
+        List<Ch> list = new ArrayList<>();
         Map<Integer, Ch> ids = new HashMap<>();
-        for (int i = 0; i < as.length(); i++) {
-            JSONObject o = as.getJSONObject(i);
-            Ch ch = new Ch();
-            ch.id = o.optInt("stream_id");
-            ch.num = o.optInt("num", i + 1);
-            ch.raw = o.optString("name").trim();
-            ch.name = Names.channel(ch.raw);
-            ch.logo = o.optString("stream_icon");
-            ch.cat = o.optString("category_id");
-            ch.epgId = o.optString("epg_channel_id");
-            ch.archive = o.optInt("tv_archive", 0);
-            list.add(ch);
-            ids.put(ch.id, ch);
-            Cat k = cm.get(ch.cat);
-            if (k != null) k.count++;
+        Map<String, List<Ch>> byCat = new HashMap<>();
+        try (android.util.JsonReader r = Http.reader(fs)) {
+            r.beginArray();
+            int i = 0;
+            while (r.hasNext()) {
+                Ch ch = new Ch();
+                ch.num = ++i;
+                r.beginObject();
+                while (r.hasNext()) {
+                    switch (r.nextName()) {
+                        case "stream_id": try { ch.id = Integer.parseInt(Http.str(r)); } catch (NumberFormatException e) { ch.id = 0; } break;
+                        case "num": try { ch.num = Integer.parseInt(Http.str(r)); } catch (NumberFormatException ignored) { } break;
+                        case "name": ch.raw = Http.str(r).trim(); break;
+                        case "stream_icon": ch.logo = Http.str(r); break;
+                        case "category_id": ch.cat = Http.str(r).intern(); break;
+                        case "epg_channel_id": ch.epgId = Http.str(r); break;
+                        case "tv_archive": try { ch.archive = Integer.parseInt(Http.str(r)); } catch (NumberFormatException ignored) { } break;
+                        default: r.skipValue();
+                    }
+                }
+                r.endObject();
+                if (ch.raw == null) ch.raw = "";
+                if (ch.cat == null) ch.cat = "";
+                ch.name = Names.channel(ch.raw);
+                list.add(ch);
+                ids.put(ch.id, ch);
+                List<Ch> l = byCat.get(ch.cat);
+                if (l == null) { l = new ArrayList<>(); byCat.put(ch.cat, l); }
+                l.add(ch);
+                Cat k = cm.get(ch.cat);
+                if (k != null) k.count++;
+            }
+            r.endArray();
         }
-        channels = list; byId = ids; cats = cm; loaded = true;
+        channels = list; byId = ids; cats = cm; catIndex = byCat; loaded = true;
     }
 
+    private static volatile Map<String, List<Ch>> catIndex = new HashMap<>();
+
     static List<Ch> inCategory(String catId) {
-        List<Ch> out = new ArrayList<>();
-        for (Ch c : channels) if (catId.equals(c.cat)) out.add(c);
-        return out;
+        List<Ch> l = catIndex.get(catId);
+        return l == null ? new ArrayList<>() : new ArrayList<>(l);
     }
 
     static Ch byNumber(int num) {

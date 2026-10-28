@@ -17,8 +17,9 @@ final class Play {
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
                 .setUserAgent(Http.UA).setAllowCrossProtocolRedirects(true)
                 .setConnectTimeoutMs(10_000).setReadTimeoutMs(15_000);
-        DefaultLoadControl lc = new DefaultLoadControl.Builder()
-                .setBufferDurationsMs(4_000, 30_000, 700, 1_500).build();
+        DefaultLoadControl lc = focus
+                ? new DefaultLoadControl.Builder().setBufferDurationsMs(4_000, 30_000, 700, 1_500).build()
+                : new DefaultLoadControl.Builder().setBufferDurationsMs(1_500, 4_000, 500, 1_000).build(); // lydløs forhåndsvisning
         return new ExoPlayer.Builder(c)
                 .setMediaSourceFactory(new DefaultMediaSourceFactory(c).setDataSourceFactory(http))
                 .setLoadControl(lc)

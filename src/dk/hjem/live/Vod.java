@@ -74,33 +74,43 @@ final class Vod {
             final Context c = ctx.getApplicationContext();
             pool.execute(() -> {
                 try {
-                    String js = cached(c, kind + "_" + catId.replaceAll("[^0-9A-Za-z]", "_") + ".json", () -> new Xtream(Cred.load(c))
-                            .get(kind.equals(MOVIE) ? "get_vod_streams" : "get_series", "&category_id=" + Xtream.enc(catId)));
-                    JSONArray a = new JSONArray(js);
-                    List<Item> out = new ArrayList<>(a.length());
-                    for (int i = 0; i < a.length(); i++) {
-                        JSONObject o = a.getJSONObject(i);
-                        Item it = new Item();
-                        it.kind = kind;
-                        it.cat = catId;
-                        if (kind.equals(MOVIE)) {
-                            it.id = o.optString("stream_id");
-                            it.poster = o.optString("stream_icon");
-                            it.ext = o.optString("container_extension");
-                            it.added = o.optLong("added");
-                        } else {
-                            it.id = o.optString("series_id");
-                            it.poster = o.optString("cover");
-                            it.added = o.optLong("last_modified");
-                            it.year = o.optString("releaseDate", o.optString("release_date", ""));
-                            if (it.year.length() >= 4) it.year = it.year.substring(0, 4);
+                    File f = new File(c.getFilesDir(), kind + "_" + catId.replaceAll("[^0-9A-Za-z]", "_") + ".json");
+                    if (!f.exists() || System.currentTimeMillis() - f.lastModified() > MAX_AGE) {
+                        try { Http.download(new Xtream(Cred.load(c)).api(kind.equals(MOVIE) ? "get_vod_streams" : "get_series", "&category_id=" + Xtream.enc(catId)), f); }
+                        catch (Exception e) { if (!f.exists()) throw e; }
+                    }
+                    List<Item> out = new ArrayList<>();
+                    try (android.util.JsonReader r = Http.reader(f)) {
+                        r.beginArray();
+                        while (r.hasNext()) {
+                            Item it = new Item();
+                            it.kind = kind;
+                            it.cat = catId;
+                            String name = "", rel = "";
+                            r.beginObject();
+                            while (r.hasNext()) {
+                                switch (r.nextName()) {
+                                    case "stream_id": case "series_id": it.id = Http.str(r); break;
+                                    case "stream_icon": case "cover": it.poster = Http.str(r); break;
+                                    case "container_extension": it.ext = Http.str(r); break;
+                                    case "added": case "last_modified": try { it.added = Long.parseLong(Http.str(r)); } catch (NumberFormatException ignored) { } break;
+                                    case "releaseDate": case "release_date": rel = Http.str(r); break;
+                                    case "name": name = Http.str(r); break;
+                                    case "rating": it.rating = Http.str(r); break;
+                                    default: r.skipValue();
+                                }
+                            }
+                            r.endObject();
+                            if (it.id == null) continue;
+                            if (rel.length() >= 4) it.year = rel.substring(0, 4);
+                            String[] yr = new String[6];
+                            yr[4] = it.year;
+                            it.name = cleanTitle(name, yr);
+                            it.year = yr[4];
+                            if (it.rating == null) it.rating = "";
+                            out.add(it);
                         }
-                        String[] yr = new String[6];
-                        yr[4] = it.year;
-                        it.name = cleanTitle(o.optString("name"), yr);
-                        it.year = yr[4];
-                        it.rating = o.optString("rating", "");
-                        out.add(it);
+                        r.endArray();
                     }
                     Collections.sort(out, (x, y) -> Long.compare(y.added, x.added));
                     items.put(key, out);
