@@ -80,6 +80,7 @@ public class PlayerActivity extends Activity {
 
         shadeLeft = new View(this);
         shadeLeft.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{0x8C000000, 0x00000000}));
+        shadeLeft.setVisibility(View.GONE); // kun bag kanal-panelet, når det er åbent
         root.addView(shadeLeft, new FrameLayout.LayoutParams(px.p(860), -1));
         shadeBottom = new View(this);
         shadeBottom.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, new int[]{0x99000000, 0x00000000}));
@@ -320,6 +321,7 @@ public class PlayerActivity extends Activity {
     }
 
     private void closePanel() {
+        fade(shadeLeft, false);
         panel.animate().alpha(0f).translationX(-px.p(40)).setDuration(180).withEndAction(() -> {
             panel.setVisibility(View.GONE);
             infoBar.setLayoutParams(infoParams());
