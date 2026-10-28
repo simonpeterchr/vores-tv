@@ -32,7 +32,7 @@ final class Vod {
     static final Map<String, Map<String, Cat>> cats = new ConcurrentHashMap<>();
     static final Map<String, List<Item>> items = new ConcurrentHashMap<>(); // kind|cat -> titler
     private static final java.util.Set<String> loading = Collections.synchronizedSet(new java.util.HashSet<>());
-    private static final ExecutorService pool = Executors.newFixedThreadPool(3);
+    private static final ExecutorService pool = Bg.pool(2, "vod");
     private static final long MAX_AGE = 12 * 3600_000L;
 
     static Map<String, Cat> categories(String kind) {

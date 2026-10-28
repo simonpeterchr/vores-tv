@@ -159,7 +159,7 @@ public class MatchActivity extends Activity {
     private volatile String foundFor;
     private volatile boolean finding;
     private long foundAt;
-    private static final java.util.concurrent.ExecutorService finder = java.util.concurrent.Executors.newSingleThreadExecutor();
+    private static final java.util.concurrent.ExecutorService finder = Bg.pool(1, "streams-match");
 
     private void findLater(final Sports.Game g) {
         if (finding || (key.equals(foundFor) && System.currentTimeMillis() - foundAt < 20_000)) return;

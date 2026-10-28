@@ -40,12 +40,12 @@ public class SportActivity extends Activity {
         if (guiding) return;
         guiding = true;
         final android.content.Context app = getApplicationContext();
-        new Thread(() -> { try { Sports.guide(app); } finally { guiding = false; } }, "sport-guide").start();
+        Bg.run("sport-guide", () -> { try { Sports.guide(app); } finally { guiding = false; } });
     };
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             top.clock.setText(Fmt.clock());
-            Sports.refresh();
+            Sports.refresh(SportActivity.this);
             guide.run();
             h.postDelayed(this, 30_000);
         }
@@ -87,7 +87,7 @@ public class SportActivity extends Activity {
         super.onResume();
         Catalog.listeners.add(onData);
         shown = "";
-        Sports.refresh();
+        Sports.refresh(this);
         buildPills();
         rebuild();
         h.post(tick);
@@ -175,11 +175,15 @@ public class SportActivity extends Activity {
         for (Map.Entry<String, List<Sports.Game>> e : secs.entrySet()) {
             if (e.getKey().equals("Spillet") && !(ALL.equals(filter) || MINE.equals(filter))) continue;
             LinearLayout r = section(e.getKey(), e.getKey().equals("Live nu"));
+            View last = null;
             for (Sports.Game g : e.getValue()) {
                 View card = card(g);
+                card.setId(View.generateViewId());
                 add(r, card, 30);
+                last = card;
                 if ((g.id + g.league).equals(focusKey)) restore = card;
             }
+            if (last != null) last.setNextFocusRightId(last.getId()); // højre på sidste kort bliver i rækken
         }
         if (restore != null && inRows) restore.requestFocus();
         else if (!firstFocus && pills.getChildCount() > 0) { pills.getChildAt(Math.max(0, index(filter))).requestFocus(); firstFocus = true; }
@@ -251,11 +255,13 @@ public class SportActivity extends Activity {
             c.addView(teamRow(g.home, showScore), lp(18));
             c.addView(teamRow(g.away, showScore), lp(10));
         }
+        // tæl kun streams for kampe der er live eller starter inden for 6 timer
+        boolean near = g.live() || (g.start - System.currentTimeMillis() < 6 * 3600_000L && !g.done());
         Integer cached = counts.get(g.id + g.league);
         int n = cached == null ? 0 : cached;
-        if (cached == null) countLater(g);
+        if (cached == null && near) countLater(g);
         TextView ft = px.t(18, 500, n > 0 ? 0xFF7EE2A8 : Theme.white(0.4f));
-        boolean soon = g.start - System.currentTimeMillis() < 24 * 3600_000L;
+        boolean soon = g.live() || g.start - System.currentTimeMillis() < 6 * 3600_000L;
         ft.setText(n > 0 ? n + (n == 1 ? " stream" : " streams") + " fundet" : g.done() ? " " : soon ? "Leder efter streams …" : "Streams findes tættere på kickoff");
         c.addView(ft, lp(16));
         c.setOnFocusChangeListener((v, has) -> {
@@ -270,14 +276,14 @@ public class SportActivity extends Activity {
 
     // Antal streams regnes ud i baggrunden (kan være titusinder af kanaler), så fjernbetjeningen ikke hakker
     private static final java.util.Map<String, Integer> counts = new java.util.concurrent.ConcurrentHashMap<>();
-    private static final java.util.concurrent.ExecutorService counter = java.util.concurrent.Executors.newSingleThreadExecutor();
+    private static final java.util.concurrent.ExecutorService counter = Bg.pool(1, "streams");
     private final java.util.Set<String> pending = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
     private void countLater(final Sports.Game g) {
         final String k = g.id + g.league;
         if (!pending.add(k)) return;
         counter.execute(() -> {
-            int n = Match.streams(getApplicationContext(), g).size();
+            int n = Match.streamsLight(getApplicationContext(), g).size();
             pending.remove(k);
             Integer old = counts.put(k, n);
             if (old == null || old != n) h.post(onData);

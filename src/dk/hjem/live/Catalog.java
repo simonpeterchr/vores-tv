@@ -48,7 +48,7 @@ final class Catalog {
         if (loading) return;
         loading = true;
         final Context c = ctx.getApplicationContext();
-        new Thread(() -> {
+        Bg.run("catalog", () -> {
             try {
                 Cred cr = Cred.load(c);
                 if (!cr.ok()) { error = null; return; }
@@ -69,11 +69,53 @@ final class Catalog {
             } finally {
                 synchronized (Catalog.class) { loading = false; }
             }
-        }, "catalog").start();
+        });
     }
 
     /** Læser kanallisten bid for bid fra fil (der kan være titusinder af kanaler – må ikke fylde hukommelsen). */
+    /** Hurtig opstart: læs den færdigbehandlede kanalliste, hvis den er nyere end udbyderens filer. */
+    private static boolean readIndex(File fc, File fs) {
+        File fi = new File(fs.getParentFile(), "live_index.tsv");
+        if (!fi.exists() || fi.lastModified() < fs.lastModified()) return false;
+        try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(fi), StandardCharsets.UTF_8), 64 * 1024)) {
+            Map<String, Cat> cm = new LinkedHashMap<>();
+            List<Ch> list = new ArrayList<>();
+            Map<Integer, Ch> ids = new HashMap<>();
+            Map<String, List<Ch>> byCat = new HashMap<>();
+            String line;
+            while ((line = r.readLine()) != null) {
+                String[] f = line.split("\t", -1);
+                if (f[0].equals("C") && f.length >= 4) { Cat k = new Cat(); k.id = f[1].intern(); k.name = f[2]; k.prefix = f[3]; cm.put(k.id, k); continue; }
+                if (!f[0].equals("K") || f.length < 9) continue;
+                Ch ch = new Ch();
+                ch.id = Integer.parseInt(f[1]); ch.num = Integer.parseInt(f[2]); ch.raw = f[3]; ch.name = f[4]; ch.logo = f[5];
+                ch.cat = f[6].intern(); ch.epgId = f[7]; ch.archive = f[8].isEmpty() ? 0 : Integer.parseInt(f[8]);
+                list.add(ch); ids.put(ch.id, ch);
+                List<Ch> l = byCat.get(ch.cat);
+                if (l == null) { l = new ArrayList<>(); byCat.put(ch.cat, l); }
+                l.add(ch);
+                Cat k = cm.get(ch.cat);
+                if (k != null) k.count++;
+            }
+            if (list.isEmpty()) return false;
+            channels = list; byId = ids; cats = cm; catIndex = byCat; loaded = true;
+            return true;
+        } catch (Exception e) { return false; }
+    }
+
+    private static void writeIndex(File fs) {
+        File fi = new File(fs.getParentFile(), "live_index.tsv"), tmp = new File(fi.getPath() + ".tmp");
+        try (java.io.Writer w = new java.io.BufferedWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(tmp), StandardCharsets.UTF_8), 64 * 1024)) {
+            for (Cat k : cats.values()) w.write("C\t" + t(k.id) + "\t" + t(k.name) + "\t" + t(k.prefix) + "\n");
+            for (Ch c : channels) w.write("K\t" + c.id + "\t" + c.num + "\t" + t(c.raw) + "\t" + t(c.name) + "\t" + t(c.logo) + "\t" + t(c.cat) + "\t" + t(c.epgId) + "\t" + c.archive + "\n");
+        } catch (Exception e) { tmp.delete(); return; }
+        tmp.renameTo(fi);
+    }
+
+    private static String t(String s) { return s == null ? "" : s.replace('\t', ' ').replace('\n', ' '); }
+
     private static void parse(File fc, File fs) throws Exception {
+        if (readIndex(fc, fs)) return;
         Map<String, Cat> cm = new LinkedHashMap<>();
         try (android.util.JsonReader r = Http.reader(fc)) {
             r.beginArray();
@@ -131,6 +173,7 @@ final class Catalog {
             r.endArray();
         }
         channels = list; byId = ids; cats = cm; catIndex = byCat; loaded = true;
+        writeIndex(fs);
     }
 
     private static volatile Map<String, List<Ch>> catIndex = new HashMap<>();

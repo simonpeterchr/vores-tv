@@ -16,7 +16,7 @@ final class Epg {
     private static final Map<Integer, List<Xtream.Prog>> cache = new ConcurrentHashMap<>();
     private static final Map<Integer, Long> fetched = new ConcurrentHashMap<>();
     private static final Set<Integer> inflight = java.util.Collections.synchronizedSet(new HashSet<>());
-    private static final ExecutorService pool = Executors.newFixedThreadPool(4);
+    private static final ExecutorService pool = Bg.pool(3, "epg");
 
     static List<Xtream.Prog> get(int id) {
         List<Xtream.Prog> l = cache.get(id);

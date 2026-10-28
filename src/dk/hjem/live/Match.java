@@ -125,7 +125,7 @@ final class Match {
         int wanted = 0;
         for (Catalog.Ch ch : sportsPool(c)) {
             if (seen.contains(ch.id)) continue;
-            if (g.start - System.currentTimeMillis() < 26 * 3600_000L && wanted++ < 120) Epg.want(c, ch.id);
+            if (shouldFetch(g) && wanted++ < 60) Epg.want(c, ch.id);
             for (Xtream.Prog p : Epg.get(ch.id)) {
                 if (p.stop < k0 || p.start > k1) continue;
                 if (p.clean == null) p.clean = clean(p.title + " " + (p.desc == null ? "" : p.desc));
@@ -150,9 +150,31 @@ final class Match {
         return pool;
     }
 
-    /** Alle streams for kampen, bedst først. Henter programguide for relevante kanaler i baggrunden. */
-    static List<Stream> streams(Context c, Sports.Game g) {
-        if (g.title != null) return eventStreams(c, g);
+    private static final java.util.Map<String, Object[]> cache = new java.util.concurrent.ConcurrentHashMap<>(); // nøgle -> {tid, liste}
+    private static final ThreadLocal<Boolean> fetch = new ThreadLocal<>();
+
+    /** Fra kampkortene: brug kun den programguide, der allerede er hentet (let). */
+    static List<Stream> streamsLight(Context c, Sports.Game g) { return streams(c, g, false); }
+
+    /** Fra kampsiden: hent også programguide for relevante kanaler. */
+    static List<Stream> streams(Context c, Sports.Game g) { return streams(c, g, true); }
+
+    @SuppressWarnings("unchecked")
+    private static List<Stream> streams(Context c, Sports.Game g, boolean fetchEpg) {
+        String key = g.id + "|" + g.league + "|" + fetchEpg;
+        Object[] hit = cache.get(key);
+        if (hit != null && System.currentTimeMillis() - (Long) hit[0] < 90_000L) return (List<Stream>) hit[1];
+        fetch.set(fetchEpg);
+        List<Stream> l = g.title != null ? eventStreams(c, g) : teamStreams(c, g);
+        cache.put(key, new Object[]{System.currentTimeMillis(), l});
+        return l;
+    }
+
+    private static boolean shouldFetch(Sports.Game g) {
+        return Boolean.TRUE.equals(fetch.get()) && (g.live() || g.start - System.currentTimeMillis() < 3 * 3600_000L);
+    }
+
+    private static List<Stream> teamStreams(Context c, Sports.Game g) {
         List<String> home = aliases(g.home), away = aliases(g.away);
         String league = g.leagueName == null ? "" : Search.norm(g.leagueName);
         List<Stream> out = new ArrayList<>();
@@ -166,7 +188,7 @@ final class Match {
         long k0 = g.start - 20 * 60_000L, k1 = g.start + 30 * 60_000L;
         for (Catalog.Ch ch : sportsPool(c)) {
             if (seen.contains(ch.id)) continue;
-            if (g.start - System.currentTimeMillis() < 26 * 3600_000L && wanted++ < 120) Epg.want(c, ch.id);
+            if (shouldFetch(g) && wanted++ < 60) Epg.want(c, ch.id);
             for (Xtream.Prog p : Epg.get(ch.id)) {
                 if (p.stop < k0 || p.start > k1) continue;
                 if (p.clean == null) p.clean = clean(p.title + " " + (p.desc == null ? "" : p.desc));

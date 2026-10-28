@@ -57,7 +57,7 @@ final class Sports {
 
     static final Map<String, Game> games = new ConcurrentHashMap<>();
     private static final Map<String, Long> fetched = new ConcurrentHashMap<>();
-    private static final ExecutorService pool = Executors.newFixedThreadPool(4);
+    private static final ExecutorService pool = Bg.pool(3, "sport");
     static final String API = "https://site.api.espn.com/apis/site/v2/sports/soccer/";
 
     static League league(String code) { for (League l : LEAGUES) if (l.code.equals(code)) return l; return null; }
@@ -109,7 +109,12 @@ final class Sports {
 
     /** TheSportsDB (gratis nøgle): dart og håndbold, som ESPN ikke har. */
     static final String[][] TSDB = {{"Darts", DARTS}, {"Handball", HANDBALL}};
-    private static final ExecutorService tsdb = Executors.newSingleThreadExecutor(); // én ad gangen (begrænset antal opslag)
+    private static final ExecutorService tsdb = Bg.pool(1, "tsdb"); // én ad gangen (begrænset antal opslag)
+
+    /** Turneringer brugeren følger (sættes fra Sport-skærmen): de hentes en uge frem, andre kun 3 dage. */
+    static volatile java.util.Set<String> favLeagueCodes = new java.util.HashSet<>();
+
+    static void refresh(Context c) { favLeagueCodes = new java.util.HashSet<>(favLeagues(c)); refresh(); }
 
     /** Henter i dag (oftere) og de næste 6 dage (sjældnere). */
     static void refresh() {
@@ -144,7 +149,7 @@ final class Sports {
                 } catch (Exception e) { fetched.remove(key); }
             });
         }
-        for (League l : LEAGUES) for (int i = -1; i <= 6; i++) {
+        for (League l : LEAGUES) for (int i = -1; i <= (favLeagueCodes.contains(l.code) ? 6 : 3); i++) {
             final String key = l.code + "|" + day(i);
             Long f = fetched.get(key);
             long maxAge = i == 0 ? 60_000L : i < 0 ? 6 * 3600_000L : 3 * 3600_000L;
@@ -282,12 +287,18 @@ final class Sports {
     private static final java.util.regex.Pattern VS = java.util.regex.Pattern.compile("(.+?)\\s+(?:-|–|—|vs\\.?|v)\\s+(.+)");
 
     /** Laver kampe ud fra PPV-kanalnavne og sportskanalernes programguide. */
+    private static volatile long guideAt;
+
     static void guide(Context c) {
         long now = System.currentTimeMillis();
+        if (!Catalog.loaded || now - guideAt < 5 * 60_000L) return; // højst hvert 5. minut (og først når kanalerne er hentet)
+        guideAt = now;
         for (String[] gd : GUIDE) {
             for (Catalog.Ch ch : Catalog.channels) { // PPV: "Pokalen: AGF - Brøndby @ 2026-10-29 19:00"
                 String raw = ch.raw != null ? ch.raw : ch.name;
                 Catalog.Cat cat = Catalog.cats.get(ch.cat);
+                String low = raw.toLowerCase(Locale.ROOT);
+                if (low.indexOf("pokal") < 0 && (cat == null || cat.name.toLowerCase(Locale.ROOT).indexOf("pokal") < 0)) continue; // hurtigt forfilter
                 if (!(raw.matches(gd[2]) || (cat != null && cat.name.matches(gd[2])))) continue;
                 Ev ev = Ev.of(ch);
                 if (ev == null || ev.start < now - 3 * 3600_000L) continue;
@@ -295,9 +306,11 @@ final class Sports {
             }
             int wanted = 0;
             for (Catalog.Ch ch : Match.sportsPool(c)) { // programguide: titel ELLER beskrivelse nævner turneringen
-                if (wanted++ < 200) Epg.want(c, ch.id);
+                if (wanted++ < 60) Epg.want(c, ch.id);
                 for (Xtream.Prog p : Epg.get(ch.id)) {
                     if (p.stop < now - 3600_000L) continue;
+                    String lt = p.title.toLowerCase(Locale.ROOT), ld = p.desc == null ? "" : p.desc.toLowerCase(Locale.ROOT);
+                    if (lt.indexOf("pokal") < 0 && ld.indexOf("pokal") < 0) continue; // hurtigt forfilter
                     boolean inTitle = p.title.matches(gd[2]), inDesc = p.desc != null && p.desc.replace('\n', ' ').matches(gd[2]);
                     if (inTitle || inDesc) {
                         addGuideGame(gd, inTitle ? p.title : p.title.replaceAll("(?i)^(fodbold|live|direkte)\\s*[:\\-–]\\s*", ""), p.start, p.stop);

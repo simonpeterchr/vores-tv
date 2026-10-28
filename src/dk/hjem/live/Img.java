@@ -15,7 +15,7 @@ final class Img {
     private static final LruCache<String, Bitmap> cache = new LruCache<String, Bitmap>((int) Math.min(48L << 20, Runtime.getRuntime().maxMemory() / 10)) {
         @Override protected int sizeOf(String k, Bitmap b) { return b.getByteCount(); }
     };
-    private static final ExecutorService pool = Executors.newFixedThreadPool(4);
+    private static final ExecutorService pool = Bg.pool(3, "img");
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     static void load(final ImageView v, final String url, final int maxW) {
