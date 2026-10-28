@@ -34,7 +34,13 @@ public class SportActivity extends Activity {
     private final Runnable rebuild = this::rebuild;
     private final Runnable onData = () -> { h.removeCallbacks(rebuild); h.postDelayed(rebuild, 300); };
     private final Runnable tick = new Runnable() {
-        @Override public void run() { top.clock.setText(Fmt.clock()); Sports.refresh(); h.postDelayed(this, 30_000); }
+        @Override public void run() {
+            top.clock.setText(Fmt.clock());
+            Sports.refresh();
+            final android.content.Context app = getApplicationContext();
+            new Thread(() -> Sports.guide(app), "sport-guide").start();
+            h.postDelayed(this, 30_000);
+        }
     };
 
     @Override protected void onCreate(Bundle b) {

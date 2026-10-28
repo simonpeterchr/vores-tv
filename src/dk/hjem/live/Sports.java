@@ -64,7 +64,7 @@ final class Sports {
 
     // ---- favoritter ----
     private static SharedPreferences prefs(Context c) { return c.getSharedPreferences("sport", Context.MODE_PRIVATE); }
-    static final String DEFAULT_TEAMS = "Sønderjyske\nBarcelona\nWrexham\nHamburg", DEFAULT_LEAGUES = "den.1\neng.1\nger.1", DEFAULT_SPORTS = "f1\ndarts\nhandball";
+    static final String DEFAULT_TEAMS = "Sønderjyske\nBarcelona\nWrexham\nHamburg", DEFAULT_LEAGUES = "den.1\nden.pokal\neng.1\nger.1", DEFAULT_SPORTS = "f1\ndarts\nhandball";
 
     static List<String> favSports(Context c) { return lines(prefs(c).getString("sports", DEFAULT_SPORTS)); }
     static void setFavSports(Context c, List<String> v) { prefs(c).edit().putString("sports", android.text.TextUtils.join("\n", v)).apply(); Catalog.changed(); }
@@ -273,6 +273,52 @@ final class Sports {
             if ("pre".equals(g.state) && !g.allDay && System.currentTimeMillis() > g.start && System.currentTimeMillis() < g.start + 2 * 3600_000L) g.state = "in";
             games.put(g.id + "|" + g.league, g);
         }
+    }
+
+    // ---- Turneringer ingen datakilde har (fx Oddset Pokalen): find kampene i jeres egne kanaler ----
+    static final String[][] GUIDE = { // {kode, navn, søgeord (regex)}
+            {"den.pokal", "Pokalen", "(?i).*\\b(oddset pokalen|sydbank ?pokalen|landspokal\\w*|dbu pokal\\w*|pokalfodbold|pokalen)\\b.*"},
+    };
+    private static final java.util.regex.Pattern VS = java.util.regex.Pattern.compile("(.+?)\\s+(?:-|–|—|vs\\.?|v)\\s+(.+)");
+
+    /** Laver kampe ud fra PPV-kanalnavne og sportskanalernes programguide. */
+    static void guide(Context c) {
+        long now = System.currentTimeMillis();
+        for (String[] gd : GUIDE) {
+            for (Catalog.Ch ch : Catalog.channels) { // PPV: "Pokalen: AGF - Brøndby @ 2026-10-29 19:00"
+                String raw = ch.raw != null ? ch.raw : ch.name;
+                Catalog.Cat cat = Catalog.cats.get(ch.cat);
+                if (!(raw.matches(gd[2]) || (cat != null && cat.name.matches(gd[2])))) continue;
+                java.util.regex.Matcher m = Search.EVENT.matcher(ch.name);
+                if (!m.find()) continue;
+                long t;
+                try { t = Search.EVENT_FMT.parse(m.group(1) + " " + m.group(2)).getTime(); } catch (Exception e) { continue; }
+                if (t < now - 3 * 3600_000L) continue;
+                addGuideGame(gd, ch.name.substring(0, m.start()), t, t + 2 * 3600_000L);
+            }
+            for (Catalog.Ch ch : Match.sportsPool(c)) { // programguide
+                for (Xtream.Prog p : Epg.get(ch.id)) {
+                    if (p.stop < now - 3600_000L || !(p.title.matches(gd[2]))) continue;
+                    addGuideGame(gd, p.title, p.start, p.stop);
+                }
+            }
+        }
+    }
+
+    private static void addGuideGame(String[] gd, String title, long start, long stop) {
+        String t = title.replaceAll("(?i)^.*?(oddset pokalen|sydbank ?pokalen|landspokal\\w*|dbu pokal\\w*|pokalfodbold|pokalen)\\s*[:\\-–|]*\\s*", "")
+                .replaceAll("(?i)^(live|direkte)\\s*[:\\-–]\\s*", "").replaceAll("\\s*[(\\[].*$", "").trim();
+        java.util.regex.Matcher m = VS.matcher(t);
+        Game g = new Game();
+        g.league = gd[0]; g.leagueName = gd[1]; g.start = start;
+        if (m.matches()) {
+            g.home.name = g.home.shortName = m.group(1).trim();
+            g.away.name = g.away.shortName = m.group(2).trim();
+        } else { g.title = t.isEmpty() ? gd[1] : t; g.sub = gd[1]; }
+        long now = System.currentTimeMillis();
+        g.state = now >= start && now < stop ? "in" : now >= stop ? "post" : "pre";
+        g.id = "g" + Integer.toHexString((Search.norm(t) + (start / 600_000L)).hashCode());
+        if (!games.containsKey(g.id + "|" + g.league)) { games.put(g.id + "|" + g.league, g); Catalog.changed(); }
     }
 
     /** Kampe sorteret: i gang først, så kommende efter tid, så afsluttede (seneste først). */

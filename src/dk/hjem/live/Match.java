@@ -140,7 +140,7 @@ final class Match {
         return out;
     }
 
-    private static List<Catalog.Ch> sportsPool(Context c) {
+    static List<Catalog.Ch> sportsPool(Context c) {
         List<Catalog.Ch> pool = new ArrayList<>(Catalog.favorites(c));
         for (String grp : Catalog.shownGroups(c)) {
             Catalog.Cat cat = Catalog.cats.get(grp);
