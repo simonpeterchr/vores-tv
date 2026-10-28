@@ -42,6 +42,7 @@ final class Match {
         }
         String n = Search.norm(t.name);
         if (n.contains("københavn") || n.contains("kobenhavn")) { a.add("fck"); a.add("københavn"); }
+        for (String[] k : Sports.COUNTRY) if (n.equals(k[1]) || n.equals(k[1] + " national team")) a.add(k[0]); // "Denmark" står ofte som "Danmark"
         if (n.contains("barcelona")) { a.add("barca"); a.add("barça"); }
         if (n.contains("hamburg")) { a.add("hsv"); a.add("hamburger"); }
         if (n.contains("manchester united")) a.add("man utd");
@@ -104,6 +105,7 @@ final class Match {
             case Sports.GOLF: return Search.synonyms("golf");
             case Sports.MMA: return new ArrayList<>(java.util.Arrays.asList("ufc", "mma"));
             case Sports.HANDBALL: return Search.synonyms("håndbold");
+            case Sports.MOTOR: return new ArrayList<>(java.util.Arrays.asList("indycar", "nascar", "dtm", "wec", "superbike", "motogp", "motorsport", "porsche", "le mans", "rally"));
             default: return new ArrayList<>();
         }
     }

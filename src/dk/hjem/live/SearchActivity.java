@@ -134,33 +134,49 @@ public class SearchActivity extends Activity {
         return null;
     }
 
+    // Søgningen kører i baggrunden (titusinder af kanaler og titler); en ny søgning afløser den forrige
+    private static final java.util.concurrent.ExecutorService searcher = Bg.pool(1, "search");
+    private final java.util.concurrent.atomic.AtomicInteger gen = new java.util.concurrent.atomic.AtomicInteger();
+
     private void run() {
-        String q = field.getText().toString();
-        List<String[]> qq = Search.query(q);
+        final String q = field.getText().toString();
+        final List<String[]> qq = Search.query(q);
+        if (qq.isEmpty()) { results.removeAllViews(); status.setText(Search.indexing() ? (Search.progress != null ? Search.progress : "Indlæser film og serier til søgning …") : ""); return; }
+        Search.index(this); // prøv igen, hvis en tidligere indlæsning fejlede
+        final int my = gen.incrementAndGet();
+        final boolean live = filter == 0 || filter == 1, mov = filter == 0 || filter == 2, ser = filter == 0 || filter == 3;
+        final int max = filter == 0 ? 24 : 120;
+        if (results.getChildCount() == 0) status.setText("Søger …");
+        final android.content.Context app = getApplicationContext();
+        searcher.execute(() -> {
+            if (my != gen.get()) return; // en nyere søgning er på vej
+            final List<Search.Hit> progs = live ? Search.programs(app, qq, max) : new java.util.ArrayList<>();
+            final List<Search.Hit> ch = live ? Search.channels(app, qq, max) : new java.util.ArrayList<>();
+            final List<Search.Hit> m = mov ? Search.vod(app, Vod.MOVIE, qq, max) : new java.util.ArrayList<>();
+            final List<Search.Hit> s = ser ? Search.vod(app, Vod.SERIES, qq, max) : new java.util.ArrayList<>();
+            h.post(() -> { if (my == gen.get() && !isFinishing()) show(progs, ch, m, s, live, mov, ser); });
+        });
+    }
+
+    private void show(List<Search.Hit> progs, List<Search.Hit> ch, List<Search.Hit> m, List<Search.Hit> s, boolean live, boolean mov, boolean ser) {
         View keep = getCurrentFocus();
         boolean inResults = keep != null && keep.getTag(0x7f0a0002) != null;
         String keepTag = inResults ? (String) keep.getTag(0x7f0a0002) : null;
         results.removeAllViews();
-        if (qq.isEmpty()) { status.setText(Search.indexing() ? (Search.progress != null ? Search.progress : "Indlæser film og serier til søgning …") : ""); return; }
-        Search.index(this); // prøv igen, hvis en tidligere indlæsning fejlede
         int n = 0;
         View restore = null;
-        boolean live = filter == 0 || filter == 1, mov = filter == 0 || filter == 2, ser = filter == 0 || filter == 3;
-        int max = filter == 0 ? 24 : 120;
         if (live) {
-            List<Search.Hit> progs = Search.programs(this, qq, max);
             List<Search.Hit> nowP = new java.util.ArrayList<>(), later = new java.util.ArrayList<>();
             long t = System.currentTimeMillis();
             for (Search.Hit x : progs) (x.start <= t ? nowP : later).add(x);
             n += nowP.size() + later.size();
             restore = pick(restore, section("Kører nu", nowP, true, keepTag), keepTag);
             restore = pick(restore, section("Senere i dag", later, true, keepTag), keepTag);
-            List<Search.Hit> ch = Search.channels(this, qq, max);
             n += ch.size();
             restore = pick(restore, section("Kanaler", ch, true, keepTag), keepTag);
         }
-        if (mov) { List<Search.Hit> m = Search.vod(this, Vod.MOVIE, qq, max); n += m.size(); restore = pick(restore, section("Film", m, false, keepTag), keepTag); }
-        if (ser) { List<Search.Hit> s = Search.vod(this, Vod.SERIES, qq, max); n += s.size(); restore = pick(restore, section("Serier", s, false, keepTag), keepTag); }
+        if (mov) { n += m.size(); restore = pick(restore, section("Film", m, false, keepTag), keepTag); }
+        if (ser) { n += s.size(); restore = pick(restore, section("Serier", s, false, keepTag), keepTag); }
         String extra = Search.indexing() && (mov || ser) ? "  ·  " + (Search.progress != null ? Search.progress : "indlæser film og serier …") : Search.epgPending.get() > 0 && live ? "  ·  henter programguide …" : "";
         status.setText((n == 0 ? "Ingen resultater" : n + " resultater") + extra);
         if (restore != null) restore.requestFocus();

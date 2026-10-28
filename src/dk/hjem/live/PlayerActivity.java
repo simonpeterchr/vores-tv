@@ -170,6 +170,7 @@ public class PlayerActivity extends Activity {
         r3.addView(infoNext, new LinearLayout.LayoutParams(0, -2, 1));
         infoHint = px.t(19.5f, 400, Theme.white(0.6f));
         infoHint.setText("▴▾ Kanaler    OK Oversigt    ★ Menu-knap: favorit");
+        infoHintDefault = infoHint.getText().toString();
         r3.addView(infoHint);
         LinearLayout.LayoutParams r3l = new LinearLayout.LayoutParams(-1, -2);
         r3l.topMargin = px.p(18);
@@ -180,6 +181,93 @@ public class PlayerActivity extends Activity {
         ml.topMargin = px.p(12);
         infoBar.addView(infoMsg, ml);
         root.addView(infoBar, infoParams());
+
+        // Kameravinkler (F1/MotoGP): panel i højre side
+        angles = new LinearLayout(this);
+        angles.setOrientation(LinearLayout.VERTICAL);
+        angles.setBackground(Ui.round(Ui.GLASS, px.p(33)));
+        angles.setPadding(px.p(21), px.p(30), px.p(21), px.p(30));
+        angles.setVisibility(View.GONE);
+        FrameLayout.LayoutParams al = new FrameLayout.LayoutParams(px.p(600), -1, Gravity.END);
+        al.rightMargin = px.p(48); al.topMargin = px.p(48); al.bottomMargin = px.p(48);
+        root.addView(angles, al);
+    }
+
+    // ---- kameravinkler ----
+    private LinearLayout angles;
+    private List<Angles.Angle> angleList = new ArrayList<>();
+    private int angleSel;
+    static final int ANGLE_ROWS = 9;
+
+    private boolean anglesOpen() { return angles.getVisibility() == View.VISIBLE; }
+
+    private void openAngles() {
+        String fam = Angles.family(playing);
+        if (fam == null) return;
+        angleList = Angles.list(fam);
+        if (angleList.isEmpty()) return;
+        angleSel = 0;
+        for (int i = 0; i < angleList.size(); i++) if (playing != null && angleList.get(i).ch.id == playing.id) angleSel = i;
+        angles.setVisibility(View.VISIBLE);
+        angles.setAlpha(0f); angles.setTranslationX(px.p(40));
+        angles.animate().alpha(1f).translationX(0).setDuration(200).start();
+        h.removeCallbacks(hideInfo);
+        bindAngles();
+    }
+
+    private void closeAngles() {
+        angles.animate().alpha(0f).translationX(px.p(40)).setDuration(180).withEndAction(() -> angles.setVisibility(View.GONE)).start();
+        showInfo(4_000);
+    }
+
+    private void bindAngles() {
+        angles.removeAllViews();
+        TextView t = px.t(27, 600, 0xFFFFFFFF);
+        t.setText("Kameravinkler");
+        t.setPadding(px.p(15), 0, 0, px.p(6));
+        angles.addView(t);
+        TextView hint = px.t(18, 400, Theme.white(0.5f));
+        hint.setText("OK skift  ·  ◂ eller Tilbage luk");
+        hint.setPadding(px.p(15), 0, 0, px.p(14));
+        angles.addView(hint);
+        int first = Math.max(0, Math.min(angleSel - ANGLE_ROWS / 2, angleList.size() - ANGLE_ROWS));
+        String lastSection = null;
+        for (int i = first; i < Math.min(angleList.size(), first + ANGLE_ROWS); i++) {
+            Angles.Angle a = angleList.get(i);
+            if (!a.section.equals(lastSection)) {
+                lastSection = a.section;
+                TextView sh = px.t(16.5f, 600, Theme.white(0.5f));
+                sh.setLetterSpacing(0.1f);
+                sh.setText(a.section.toUpperCase(Fmt.DA));
+                sh.setPadding(px.p(15), px.p(10), 0, px.p(4));
+                angles.addView(sh);
+            }
+            boolean s = i == angleSel, on = playing != null && playing.id == a.ch.id;
+            LinearLayout r = new LinearLayout(this);
+            r.setOrientation(LinearLayout.VERTICAL);
+            r.setPadding(px.p(16), px.p(10), px.p(16), px.p(10));
+            r.setBackground(s ? Ui.round(0xFFFFFFFF, px.p(16)) : null);
+            TextView n = px.t(22, 600, s ? 0xFF000000 : 0xFFFFFFFF);
+            n.setText((on ? "▶ " : "") + a.label);
+            r.addView(n);
+            TextView sb = px.t(17, 400, s ? 0x99000000 : Theme.white(0.55f));
+            sb.setText(a.sub);
+            r.addView(sb);
+            LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(-1, -2);
+            rl.topMargin = px.p(3);
+            angles.addView(r, rl);
+        }
+    }
+
+    /** Skift vinkel: listen bliver vinklerne, så ▴▾ også blader mellem dem. */
+    private void chooseAngle() {
+        if (angleList.isEmpty()) return;
+        list = new ArrayList<>();
+        for (Angles.Angle a : angleList) list.add(a.ch);
+        cat = null;
+        playing = null;
+        playIndex(angleSel);
+        bindAngles();
     }
 
     private FrameLayout.LayoutParams infoParams() {
@@ -286,7 +374,10 @@ public class PlayerActivity extends Activity {
         else v.animate().alpha(0f).setDuration(250).withEndAction(() -> v.setVisibility(View.GONE)).start();
     }
 
+    private String infoHintDefault = "";
+
     private void bindInfo(Catalog.Ch c) {
+        if (infoHint != null) infoHint.setText(Angles.family(c) != null ? "▴▾ Kanaler    OK Oversigt    ◂ Kameravinkler" : infoHintDefault);
         Img.load(infoLogo, c.logo, px.p(96));
         int pos = list.indexOf(c) + 1;
         infoCh.setText((pos > 0 ? pos + " · " : "") + c.name + (Catalog.isFav(this, c.id) ? "  ★" : ""));
@@ -428,6 +519,15 @@ public class PlayerActivity extends Activity {
         if (code >= KeyEvent.KEYCODE_0 && code <= KeyEvent.KEYCODE_9) { digit(code - KeyEvent.KEYCODE_0); return true; }
         if (code >= KeyEvent.KEYCODE_NUMPAD_0 && code <= KeyEvent.KEYCODE_NUMPAD_9) { digit(code - KeyEvent.KEYCODE_NUMPAD_0); return true; }
         boolean ok = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER;
+        if (anglesOpen()) {
+            switch (code) {
+                case KeyEvent.KEYCODE_DPAD_UP: if (angleSel > 0) { angleSel--; bindAngles(); } return true;
+                case KeyEvent.KEYCODE_DPAD_DOWN: if (angleSel < angleList.size() - 1) { angleSel++; bindAngles(); } return true;
+                case KeyEvent.KEYCODE_DPAD_LEFT: case KeyEvent.KEYCODE_BACK: closeAngles(); return true;
+            }
+            if (ok) { if (e.getRepeatCount() == 0) chooseAngle(); return true; }
+            return true;
+        }
         if (panelOpen()) {
             switch (code) {
                 case KeyEvent.KEYCODE_DPAD_UP: if (panelSel > 0) { panelSel--; bindPanel(); } return true;
@@ -443,7 +543,10 @@ public class PlayerActivity extends Activity {
         switch (code) {
             case KeyEvent.KEYCODE_DPAD_UP: case KeyEvent.KEYCODE_CHANNEL_DOWN: zap(-1); return true;
             case KeyEvent.KEYCODE_DPAD_DOWN: case KeyEvent.KEYCODE_CHANNEL_UP: zap(1); return true;
-            case KeyEvent.KEYCODE_DPAD_LEFT: case KeyEvent.KEYCODE_DPAD_RIGHT: case KeyEvent.KEYCODE_INFO: showInfo(6_000); return true;
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+                if (Angles.family(playing) != null) { openAngles(); return true; }
+                showInfo(6_000); return true;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: case KeyEvent.KEYCODE_INFO: showInfo(6_000); return true;
             case KeyEvent.KEYCODE_MENU: case KeyEvent.KEYCODE_BOOKMARK:
                 if (playing != null) { Catalog.toggleFav(this, playing.id); bindInfo(playing); showInfo(4_000); } return true;
             case KeyEvent.KEYCODE_BACK:

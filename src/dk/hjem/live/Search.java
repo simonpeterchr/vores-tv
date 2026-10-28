@@ -78,9 +78,29 @@ final class Search {
         return alts;
     }
 
+    // Normaliseret tekst gemmes, så den kun beregnes én gang (Normalizer er dyr på svage tv'er)
+    private static final java.util.Map<Catalog.Ch, String> chNorm = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+
+    static String normName(Catalog.Ch ch) {
+        String n = chNorm.get(ch);
+        if (n == null) { n = norm(ch.name); chNorm.put(ch, n); }
+        return n;
+    }
+
+    /** VOD-indeks: plads 6 i rækken bruges til den normaliserede titel. */
+    static String normOf(String[] e) {
+        if (e.length < 7) return norm(e[1]);
+        if (e[6] == null) e[6] = norm(e[1]);
+        return e[6];
+    }
+
     static boolean match(String text, List<String[]> q) {
         if (text == null || q.isEmpty()) return false;
-        String t = norm(text);
+        return matchNorm(norm(text), q);
+    }
+
+    static boolean matchNorm(String t, List<String[]> q) {
+        if (t == null || q.isEmpty()) return false;
         outer:
         for (String[] words : q) {
             for (String w : words) if (!has(t, w)) continue outer;
@@ -120,7 +140,7 @@ final class Search {
         for (Catalog.Ch ch : Catalog.channels) {
             if (ch.name.matches("^[#=*~\\-_ ]{3,}.*")) continue; // skillelinjer som "##### SOCCER PPV #####"
             Catalog.Cat k = Catalog.cats.get(ch.cat);
-            boolean m = match(ch.name, q) || (k != null && match(k.name, q) && q.size() > 1);
+            boolean m = matchNorm(normName(ch), q) || (k != null && q.size() > 1 && match(k.name, q));
             if (!m) continue;
             Hit h = new Hit();
             h.kind = "channel"; h.chId = ch.id; h.name = ch.name; h.img = ch.logo; h.sub = k != null ? k.name : "";
@@ -252,7 +272,7 @@ final class Search {
         try (JsonReader r = new JsonReader(new InputStreamReader(con.getInputStream(), StandardCharsets.UTF_8))) {
             r.beginArray();
             while (r.hasNext()) {
-                String[] e = new String[6]; // id, navn, billede, kategori, år, endelse
+                String[] e = new String[7]; // id, navn, billede, kategori, år, endelse, (normaliseret navn)
                 r.beginObject();
                 while (r.hasNext()) {
                     String n = r.nextName();
@@ -279,7 +299,7 @@ final class Search {
     private static void writeTsv(File f, List<String[]> out) throws Exception {
         try (Writer w = new OutputStreamWriter(new FileOutputStream(f), StandardCharsets.UTF_8)) {
             for (String[] e : out) {
-                for (int i = 0; i < e.length; i++) { if (i > 0) w.write('\t'); w.write(e[i] == null ? "" : e[i].replace('\t', ' ').replace('\n', ' ')); }
+                for (int i = 0; i < 6; i++) { if (i > 0) w.write('\t'); w.write(e[i] == null ? "" : e[i].replace('\t', ' ').replace('\n', ' ')); }
                 w.write('\n');
             }
         }
@@ -289,7 +309,7 @@ final class Search {
         List<String[]> out = new ArrayList<>();
         try (BufferedReader r = new BufferedReader(new InputStreamReader(new FileInputStream(f), StandardCharsets.UTF_8))) {
             String line;
-            while ((line = r.readLine()) != null) out.add(Arrays.copyOf(line.split("\t", -1), 6));
+            while ((line = r.readLine()) != null) out.add(Arrays.copyOf(line.split("\t", -1), 7));
         }
         return out;
     }
@@ -303,12 +323,12 @@ final class Search {
         for (String[] e : src) ids.add(e[0]);
         for (Map.Entry<String, List<Vod.Item>> en : Vod.items.entrySet()) {
             if (!en.getKey().startsWith(kind + "|")) continue;
-            for (Vod.Item it : en.getValue()) if (ids.add(it.id)) src.add(new String[]{it.id, it.name, it.poster, it.cat, it.year, it.ext});
+            for (Vod.Item it : en.getValue()) if (ids.add(it.id)) src.add(new String[]{it.id, it.name, it.poster, it.cat, it.year, it.ext, null});
         }
         List<Hit> first = new ArrayList<>(), rest = new ArrayList<>();
         java.util.Set<String> shown = new java.util.HashSet<>(Vod.shownGroups(c, kind));
         for (String[] e : src) {
-            if (!match(e[1], q)) continue;
+            if (!matchNorm(normOf(e), q)) continue;
             Hit h = new Hit();
             h.kind = kind; h.id = e[0]; h.name = e[1]; h.img = e[2]; h.cat = e[3]; h.sub = e[4]; h.ext = e[5];
             (shown.contains(e[3]) ? first : rest).add(h);

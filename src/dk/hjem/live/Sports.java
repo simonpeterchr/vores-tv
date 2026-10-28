@@ -32,14 +32,27 @@ final class Sports {
             new League("uefa.europa.conf", "Conference League"), new League("ita.1", "Serie A"), new League("fra.1", "Ligue 1"),
             new League("den.cup", "Pokalen"), new League("eng.fa", "FA Cup"), new League("esp.copa_del_rey", "Copa del Rey"),
             new League("ger.dfb_pokal", "DFB-Pokal"), new League("eng.league_cup", "Carabao Cup"),
+            // landshold
+            new League("fifa.world", "VM"), new League("uefa.euro", "EM"), new League("fifa.worldq.uefa", "VM-kvalifikation"),
+            new League("uefa.euroq", "EM-kvalifikation"), new League("uefa.nations", "Nations League"), new League("fifa.friendly", "Venskabskampe"),
+    };
+
+    /** Danske landenavne → de engelske, ESPN bruger (så "Danmark" som hold også finder "Denmark"). */
+    static final String[][] COUNTRY = {
+            {"danmark", "denmark"}, {"norge", "norway"}, {"sverige", "sweden"}, {"tyskland", "germany"}, {"england", "england"},
+            {"frankrig", "france"}, {"spanien", "spain"}, {"italien", "italy"}, {"holland", "netherlands"}, {"nederlandene", "netherlands"},
+            {"belgien", "belgium"}, {"portugal", "portugal"}, {"finland", "finland"}, {"island", "iceland"}, {"skotland", "scotland"},
+            {"wales", "wales"}, {"irland", "republic of ireland"}, {"nordirland", "northern ireland"}, {"polen", "poland"}, {"schweiz", "switzerland"},
+            {"østrig", "austria"}, {"kroatien", "croatia"}, {"serbien", "serbia"}, {"tjekkiet", "czechia"}, {"ungarn", "hungary"},
+            {"tyrkiet", "turkey"}, {"grækenland", "greece"}, {"ukraine", "ukraine"}, {"brasilien", "brazil"}, {"argentina", "argentina"},
     };
 
     static final class Team { String name, shortName, abbr, logo; int score = -1; }
 
-    static final String FOOTBALL = "football", F1 = "f1", DARTS = "darts", HANDBALL = "handball", TENNIS = "tennis", MMA = "mma", GOLF = "golf";
+    static final String FOOTBALL = "football", F1 = "f1", DARTS = "darts", HANDBALL = "handball", TENNIS = "tennis", MMA = "mma", GOLF = "golf", MOTOR = "motor";
 
     /** Sportsgrene med visningsnavn (rækkefølgen på Sport-fanen). */
-    static final String[][] SPORTS = {{FOOTBALL, "Fodbold"}, {F1, "Formel 1"}, {DARTS, "Dart"}, {HANDBALL, "Håndbold"}, {TENNIS, "Tennis"}, {MMA, "UFC"}, {GOLF, "Golf"}};
+    static final String[][] SPORTS = {{FOOTBALL, "Fodbold"}, {F1, "Formel 1"}, {MOTOR, "Motorsport"}, {DARTS, "Dart"}, {HANDBALL, "Håndbold"}, {TENNIS, "Tennis"}, {MMA, "UFC"}, {GOLF, "Golf"}};
 
     static String sportName(String s) { for (String[] x : SPORTS) if (x[0].equals(s)) return x[1]; return s; }
 
@@ -64,7 +77,7 @@ final class Sports {
 
     // ---- favoritter ----
     private static SharedPreferences prefs(Context c) { return c.getSharedPreferences("sport", Context.MODE_PRIVATE); }
-    static final String DEFAULT_TEAMS = "Sønderjyske\nBarcelona\nWrexham\nHamburg", DEFAULT_LEAGUES = "den.1\nden.pokal\neng.1\nger.1", DEFAULT_SPORTS = "f1\ndarts\nhandball";
+    static final String DEFAULT_TEAMS = "Sønderjyske\nBarcelona\nWrexham\nHamburg", DEFAULT_LEAGUES = "den.1\nden.pokal\neng.1\nger.1", DEFAULT_SPORTS = "f1\nmotor\ndarts\nhandball";
 
     static List<String> favSports(Context c) { return lines(prefs(c).getString("sports", DEFAULT_SPORTS)); }
     static void setFavSports(Context c, List<String> v) { prefs(c).edit().putString("sports", android.text.TextUtils.join("\n", v)).apply(); Catalog.changed(); }
@@ -84,8 +97,12 @@ final class Sports {
 
     static boolean isFavTeam(Context c, Team t) {
         if (t.name == null) return false;
-        String n = Search.norm(t.name + " " + t.shortName);
-        for (String f : favTeams(c)) if (n.contains(Search.norm(f))) return true;
+        String n = " " + Search.norm(t.name + " " + t.shortName) + " ";
+        for (String f : favTeams(c)) {
+            String nf = Search.norm(f);
+            if (n.contains(nf)) return true;
+            for (String[] k : COUNTRY) if (k[0].equals(nf) && (n.contains(" " + k[1] + " ") || n.trim().equals(k[1]))) return true;
+        }
         return false;
     }
 
@@ -105,6 +122,7 @@ final class Sports {
     static final String[][] ESPN_OTHER = {
             {"racing/f1", F1, "Formel 1"}, {"tennis/atp", TENNIS, "ATP"}, {"tennis/wta", TENNIS, "WTA"},
             {"mma/ufc", MMA, "UFC"}, {"golf/pga", GOLF, "PGA Tour"},
+            {"racing/irl", MOTOR, "IndyCar"}, {"racing/nascar-premier", MOTOR, "NASCAR"},
     };
 
     /** TheSportsDB (gratis nøgle): dart og håndbold, som ESPN ikke har. */
@@ -149,7 +167,7 @@ final class Sports {
                 } catch (Exception e) { fetched.remove(key); }
             });
         }
-        for (League l : LEAGUES) for (int i = -1; i <= (favLeagueCodes.contains(l.code) ? 6 : 3); i++) {
+        for (League l : LEAGUES) for (int i = -1; i <= (favLeagueCodes.contains(l.code) ? 14 : 3); i++) {
             final String key = l.code + "|" + day(i);
             Long f = fetched.get(key);
             long maxAge = i == 0 ? 60_000L : i < 0 ? 6 * 3600_000L : 3 * 3600_000L;
@@ -281,8 +299,9 @@ final class Sports {
     }
 
     // ---- Turneringer ingen datakilde har (fx Oddset Pokalen): find kampene i jeres egne kanaler ----
-    static final String[][] GUIDE = { // {kode, navn, søgeord (regex)}
-            {"den.pokal", "Pokalen", "(?i).*\\b(betano ?pokalen|oddset pokalen|sydbank ?pokalen|landspokal\\w*|dbu pokal\\w*|pokalfodbold|pokalen)\\b.*"},
+    static final String[][] GUIDE = { // {kode, navn, søgeord (regex), sport, forfilter}
+            {"den.pokal", "Pokalen", "(?i).*\\b(betano ?pokalen|oddset pokalen|sydbank ?pokalen|landspokal\\w*|dbu pokal\\w*|pokalfodbold|pokalen)\\b.*", FOOTBALL, "pokal"},
+            {"motor.ppv", "Motorsport", "(?i).*\\b(indycar|indy 500|nascar|dtm|wec|le mans|superbike|worldsbk|wsbk|motogp|moto2|moto3|formula [234e]|formel [234e]|porsche carrera|super formula|imsa|supercars|rally|wrc)\\b.*", MOTOR, ""},
     };
     private static final java.util.regex.Pattern VS = java.util.regex.Pattern.compile("(.+?)\\s+(?:-|–|—|vs\\.?|v)\\s+(.+)");
 
@@ -298,11 +317,12 @@ final class Sports {
                 String raw = ch.raw != null ? ch.raw : ch.name;
                 Catalog.Cat cat = Catalog.cats.get(ch.cat);
                 String low = raw.toLowerCase(Locale.ROOT);
-                if (low.indexOf("pokal") < 0 && (cat == null || cat.name.toLowerCase(Locale.ROOT).indexOf("pokal") < 0)) continue; // hurtigt forfilter
+                if (!gd[4].isEmpty() && low.indexOf(gd[4]) < 0 && (cat == null || cat.name.toLowerCase(Locale.ROOT).indexOf(gd[4]) < 0)) continue; // hurtigt forfilter
+                if (MOTOR.equals(gd[3]) && low.indexOf('|') < 0 && low.indexOf('@') < 0) continue; // kun PPV-løb med tidspunkt
                 if (!(raw.matches(gd[2]) || (cat != null && cat.name.matches(gd[2])))) continue;
                 Ev ev = Ev.of(ch);
                 if (ev == null || ev.start < now - 3 * 3600_000L) continue;
-                addGuideGame(gd, ev.title, ev.start, ev.start + 2 * 3600_000L);
+                addGuideGame(gd, ev.title, ev.extra, ev.start, ev.start + 2 * 3600_000L);
             }
             int wanted = 0;
             for (Catalog.Ch ch : Match.sportsPool(c)) { // programguide: titel ELLER beskrivelse nævner turneringen
@@ -310,22 +330,32 @@ final class Sports {
                 for (Xtream.Prog p : Epg.get(ch.id)) {
                     if (p.stop < now - 3600_000L) continue;
                     String lt = p.title.toLowerCase(Locale.ROOT), ld = p.desc == null ? "" : p.desc.toLowerCase(Locale.ROOT);
-                    if (lt.indexOf("pokal") < 0 && ld.indexOf("pokal") < 0) continue; // hurtigt forfilter
+                    if (gd[4].isEmpty() ? MOTOR.equals(gd[3]) : (lt.indexOf(gd[4]) < 0 && ld.indexOf(gd[4]) < 0)) continue; // hurtigt forfilter (motorsport kun fra PPV)
                     boolean inTitle = p.title.matches(gd[2]), inDesc = p.desc != null && p.desc.replace('\n', ' ').matches(gd[2]);
                     if (inTitle || inDesc) {
-                        addGuideGame(gd, inTitle ? p.title : p.title.replaceAll("(?i)^(fodbold|live|direkte)\\s*[:\\-–]\\s*", ""), p.start, p.stop);
+                        addGuideGame(gd, inTitle ? p.title : p.title.replaceAll("(?i)^(fodbold|live|direkte)\\s*[:\\-–]\\s*", ""), null, p.start, p.stop);
                     }
                 }
             }
         }
     }
 
-    private static void addGuideGame(String[] gd, String title, long start, long stop) {
+    private static void addGuideGame(String[] gd, String title, String extra, long start, long stop) {
         String t = title.replaceAll("(?i)^.*?(betano ?pokalen|oddset pokalen|sydbank ?pokalen|landspokal\\w*|dbu pokal\\w*|pokalfodbold|pokalen)\\s*[:\\-–|]*\\s*", "")
                 .replaceAll("(?i)^(live|direkte)\\s*[:\\-–]\\s*", "").replaceAll("\\s*[(\\[].*$", "").trim();
         java.util.regex.Matcher m = VS.matcher(t);
         Game g = new Game();
-        g.league = gd[0]; g.leagueName = gd[1]; g.start = start;
+        g.league = gd[0]; g.leagueName = gd[1]; g.start = start; g.sport = gd[3];
+        if (MOTOR.equals(gd[3])) { // løb: "Honda Indy 200 at Mid-Ohio" + "IndyCar Kvalifikation 2026"
+            String full = Ev.nice(title.replaceAll("(?i)^\\(?[a-z]{2,4}\\s*\\d*\\)?\\s*\\|\\s*", "").replaceAll("(?i)^(flo|stan|au)\\s*\\(?\\w*\\s*\\d*\\)?\\s*[:|]?\\s*", ""));
+            g.title = full.length() > 60 ? full.substring(0, 60) : full;
+            g.sub = extra != null ? Ev.nice(extra).replaceAll("\\s*20\\d\\d$", "") : gd[1];
+            long now = System.currentTimeMillis();
+            g.state = now >= start && now < stop ? "in" : now >= stop ? "post" : "pre";
+            g.id = "m" + Integer.toHexString((Search.norm(g.title + g.sub) + (start / 600_000L)).hashCode());
+            if (!games.containsKey(g.id + "|" + g.league)) { games.put(g.id + "|" + g.league, g); Catalog.changed(); }
+            return;
+        }
         if (m.matches()) {
             g.home.name = g.home.shortName = Ev.nice(m.group(1).trim());
             g.away.name = g.away.shortName = Ev.nice(m.group(2).trim());
