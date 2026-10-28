@@ -78,8 +78,6 @@ public class HomeActivity extends Activity {
         Web.start(this);
         if (!Cred.load(this).ok()) { startActivity(new Intent(this, LiveActivity.class)); }
         Catalog.load(this, false);
-        Vod.loadCategories(this, Vod.MOVIE);
-        Vod.loadCategories(this, Vod.SERIES);
         Updater.check(this);
         Health.check(this, true);
 
@@ -278,7 +276,7 @@ public class HomeActivity extends Activity {
             final List<Vod.Resume> cont = Vod.continueList(app, null);
             final List<Catalog.Ch> chans = Feed.liveNow(app, 16);
             final List<Sports.Game> games = myGames();
-            final List<Vod.Item> nw = newest();
+            final List<Vod.Item> nw = new ArrayList<>(); // "Nyt i film og serier" er fjernet fra Hjem
             h.post(() -> {
                 gathering = false;
                 if (!isFinishing()) apply(cont, chans, games, nw);
@@ -379,14 +377,6 @@ public class HomeActivity extends Activity {
                     if (("r" + x.key).equals(keepTag)) restore = box;
                 }
             }
-        }
-        // 4) Nyt
-        StringBuilder sn = new StringBuilder();
-        for (Vod.Item it : nw) sn.append(it.kind).append(it.id).append(',');
-        if (!sn.toString().equals(sigs[3])) {
-            sigs[3] = sn.toString();
-            secs[3].removeAllViews();
-            restore = posterRow(secs[3], "Nyt i film og serier", nw, keepTag, restore);
         }
         if (restore != null && (keep == null || !keep.isShown())) restore.requestFocus();
         else if (keep == null || !keep.isShown() || !firstFocusDone) {
