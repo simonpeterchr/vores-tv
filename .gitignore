@@ -8,3 +8,6 @@ libs-src/
 signing.local
 .DS_Store
 *.idsig
+web/data/
+.claude/
+web/simonp-dns-import.txt

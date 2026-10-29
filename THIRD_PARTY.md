@@ -10,3 +10,6 @@
 
 Bibliotekerne følger ikke med i repoet; `fetch-libs.sh` henter dem fra Google Maven og Maven Central.
 Den færdige APK indeholder dem under deres respektive licenser.
+
+## Kanallogoer
+Kanallogoerne hentes fra [tv-logo/tv-logos](https://github.com/tv-logo/tv-logos) (Creative Commons ShareAlike). `assets/logos.json` er kun en liste over filstier i det projekt; selve logoerne er varemærker tilhørende kanalerne og vises blot som genvej.

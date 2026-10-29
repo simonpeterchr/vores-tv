@@ -52,6 +52,7 @@ final class Catalog {
             try {
                 Cred cr = Cred.load(c);
                 if (!cr.ok()) { error = null; return; }
+                Logos.init(c);
                 File fc = new File(c.getFilesDir(), "live_categories.json"), fs = new File(c.getFilesDir(), "live_streams.json");
                 boolean fresh = !force && fs.exists() && System.currentTimeMillis() - fs.lastModified() < MAX_AGE;
                 if (fresh && !loaded) { parse(fc, fs); changed(); return; }
@@ -75,7 +76,7 @@ final class Catalog {
     /** Læser kanallisten bid for bid fra fil (der kan være titusinder af kanaler – må ikke fylde hukommelsen). */
     /** Hurtig opstart: læs den færdigbehandlede kanalliste, hvis den er nyere end udbyderens filer. */
     private static boolean readIndex(File fc, File fs) {
-        File fi = new File(fs.getParentFile(), "live_index.tsv");
+        File fi = new File(fs.getParentFile(), "live_index2.tsv");
         if (!fi.exists() || fi.lastModified() < fs.lastModified()) return false;
         try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(fi), StandardCharsets.UTF_8), 64 * 1024)) {
             Map<String, Cat> cm = new LinkedHashMap<>();
@@ -104,7 +105,7 @@ final class Catalog {
     }
 
     private static void writeIndex(File fs) {
-        File fi = new File(fs.getParentFile(), "live_index.tsv"), tmp = new File(fi.getPath() + ".tmp");
+        File fi = new File(fs.getParentFile(), "live_index2.tsv"), tmp = new File(fi.getPath() + ".tmp");
         try (java.io.Writer w = new java.io.BufferedWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(tmp), StandardCharsets.UTF_8), 64 * 1024)) {
             for (Cat k : cats.values()) w.write("C\t" + t(k.id) + "\t" + t(k.name) + "\t" + t(k.prefix) + "\n");
             for (Ch c : channels) w.write("K\t" + c.id + "\t" + c.num + "\t" + t(c.raw) + "\t" + t(c.name) + "\t" + t(c.logo) + "\t" + t(c.cat) + "\t" + t(c.epgId) + "\t" + c.archive + "\n");
@@ -162,6 +163,9 @@ final class Catalog {
                 if (ch.raw == null) ch.raw = "";
                 if (ch.cat == null) ch.cat = "";
                 ch.name = Names.channel(ch.raw);
+                Cat k0 = cm.get(ch.cat);
+                String better = Logos.find(ch.name, Names.prefix(ch.raw), k0 != null ? k0.prefix : null); // rigtige logoer i stedet for udbyderens klemte
+                if (better != null) ch.logo = better;
                 list.add(ch);
                 ids.put(ch.id, ch);
                 List<Ch> l = byCat.get(ch.cat);
