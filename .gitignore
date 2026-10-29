@@ -11,3 +11,4 @@ signing.local
 web/data/
 .claude/
 web/simonp-dns-import.txt
+web/deploy.local

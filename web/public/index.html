@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0b0d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg">
+<title>Vores TV</title>
+<link rel="stylesheet" href="app.css?v=5">
+</head>
+<body>
+<header id="top">
+  <div class="brand">Vores <b>TV</b></div>
+  <nav id="nav"></nav>
+  <div class="right"><span id="clock"></span><a href="#/indstillinger" class="gear" title="Indstillinger" aria-label="Indstillinger">⚙</a></div>
+</header>
+<main id="view"></main>
+<div id="player" class="hidden" tabindex="-1">
+  <video id="video" playsinline x-webkit-airplay="allow"></video>
+  <div class="p-msg hidden" id="pmsg"></div>
+  <div class="p-spin hidden" id="pspin"></div>
+  <div class="p-ui">
+    <div class="p-top">
+      <button class="p-btn" id="pback" aria-label="Tilbage">←</button>
+      <div class="p-titles"><div class="p-title" id="ptitle"></div><div class="p-sub" id="psub"></div></div>
+      <div class="p-actions" id="pactions"></div>
+    </div>
+    <div class="p-bottom" id="pbottom"></div>
+  </div>
+  <aside class="p-panel hidden" id="ppanel"></aside>
+</div>
+<div id="toast" class="hidden"></div>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.7.3/dist/mpegts.min.js"></script>
+<script src="app.js?v=4"></script>
+<script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+</body>
+</html>

@@ -206,6 +206,7 @@ final class Catalog {
         StringBuilder b = new StringBuilder();
         for (Integer i : ids) { if (b.length() > 0) b.append(','); b.append(i); }
         prefs(c).edit().putString("favs", b.toString()).apply();
+        Sync.touch(c, "favs");
         changed();
     }
 
@@ -251,6 +252,7 @@ final class Catalog {
         StringBuilder b = new StringBuilder();
         for (String s : g) { if (b.length() > 0) b.append(','); b.append(s); }
         prefs(c).edit().putString("groups", b.toString()).apply();
+        Sync.touch(c, "groups");
         changed();
     }
 
@@ -278,6 +280,7 @@ final class Catalog {
         StringBuilder b = new StringBuilder();
         for (int i = 0; i < Math.min(20, h.size()); i++) { if (i > 0) b.append(','); b.append(h.get(i)); }
         prefs(c).edit().putInt("last", id).putString("history", b.toString()).apply();
+        Sync.touch(c, "history");
     }
 
     static List<Integer> history(Context c) {

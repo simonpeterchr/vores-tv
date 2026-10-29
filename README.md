@@ -53,3 +53,7 @@ Uden `signing.local` signeres med en lokal debug-nøgle.
 ## Licens
 
 MIT – se [LICENSE](LICENSE). Tredjepartsbiblioteker: se [THIRD_PARTY.md](THIRD_PARTY.md).
+
+## Vores TV i browseren
+
+Mappen [`web/`](web/) indeholder en browser-udgave med de samme funktioner, der kører på en pc på hjemmenettet. Se [web/README.md](web/README.md).

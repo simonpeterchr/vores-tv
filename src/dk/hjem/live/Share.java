@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit;
 
 /** Del login mellem tv'er i huset: find andre Vores TV på hjemmenettet og send login til dem, der mangler. */
 final class Share {
-    static final class Peer { String ip, name; boolean loggedIn; }
+    static final class Peer { String ip, name; boolean loggedIn, web; }
 
     static String deviceName(Context c) {
         String n = Settings.Global.getString(c.getContentResolver(), "device_name");
@@ -67,7 +67,7 @@ final class Share {
                     JSONObject o = new JSONObject(new String(b, 0, Math.max(0, n), StandardCharsets.UTF_8));
                     if (!"vorestv".equals(o.optString("app"))) return;
                     Peer p = new Peer();
-                    p.ip = ip; p.name = o.optString("name", ip); p.loggedIn = o.optBoolean("in");
+                    p.ip = ip; p.name = o.optString("name", ip); p.loggedIn = o.optBoolean("in"); p.web = o.optBoolean("web");
                     out.add(p);
                 } catch (Exception ignored) { }
             });

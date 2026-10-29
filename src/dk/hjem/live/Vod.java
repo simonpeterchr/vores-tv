@@ -181,6 +181,7 @@ final class Vod {
         StringBuilder b = new StringBuilder();
         for (String s : g) { if (b.length() > 0) b.append(','); b.append(s); }
         prefs(c).edit().putString("groups_" + kind, b.toString()).apply();
+        Sync.touch(c, "vodGroups");
         Catalog.changed();
     }
 
@@ -203,6 +204,7 @@ final class Vod {
             if (done) { e.remove(r.key); o.put("done", true); e.putString("done:" + r.key, "1"); }
             else e.putString(r.key, o.toString());
             e.apply();
+            Sync.resumeChanged(c);
         } catch (Exception ignored) { }
     }
 

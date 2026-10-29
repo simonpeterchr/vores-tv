@@ -80,14 +80,14 @@ final class Sports {
     static final String DEFAULT_TEAMS = "Sønderjyske\nBarcelona\nWrexham\nHamburg", DEFAULT_LEAGUES = "den.1\nden.pokal\neng.1\nger.1", DEFAULT_SPORTS = "f1\nmotor\ndarts\nhandball";
 
     static List<String> favSports(Context c) { return lines(prefs(c).getString("sports", DEFAULT_SPORTS)); }
-    static void setFavSports(Context c, List<String> v) { prefs(c).edit().putString("sports", android.text.TextUtils.join("\n", v)).apply(); Catalog.changed(); }
+    static void setFavSports(Context c, List<String> v) { prefs(c).edit().putString("sports", android.text.TextUtils.join("\n", v)).apply(); Sync.touch(c, "sport"); Catalog.changed(); }
 
     static List<String> favTeams(Context c) { return lines(prefs(c).getString("teams", DEFAULT_TEAMS)); }
     static List<String> favLeagues(Context c) { return lines(prefs(c).getString("leagues", DEFAULT_LEAGUES)); }
-    static void setFavTeams(Context c, String v) { prefs(c).edit().putString("teams", v).apply(); Catalog.changed(); }
-    static void setFavLeagues(Context c, List<String> v) { prefs(c).edit().putString("leagues", android.text.TextUtils.join("\n", v)).apply(); Catalog.changed(); }
+    static void setFavTeams(Context c, String v) { prefs(c).edit().putString("teams", v).apply(); Sync.touch(c, "sport"); Catalog.changed(); }
+    static void setFavLeagues(Context c, List<String> v) { prefs(c).edit().putString("leagues", android.text.TextUtils.join("\n", v)).apply(); Sync.touch(c, "sport"); Catalog.changed(); }
     static boolean spoilerFree(Context c) { return prefs(c).getBoolean("spoiler", false); }
-    static void setSpoilerFree(Context c, boolean v) { prefs(c).edit().putBoolean("spoiler", v).apply(); Catalog.changed(); }
+    static void setSpoilerFree(Context c, boolean v) { prefs(c).edit().putBoolean("spoiler", v).apply(); Sync.touch(c, "sport"); Catalog.changed(); }
 
     private static List<String> lines(String s) {
         List<String> out = new ArrayList<>();

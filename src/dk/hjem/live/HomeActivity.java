@@ -79,6 +79,7 @@ public class HomeActivity extends Activity {
         if (!Cred.load(this).ok()) { startActivity(new Intent(this, LiveActivity.class)); }
         Catalog.load(this, false);
         Updater.check(this);
+        Sync.now(this, true); // indstillinger fra Vores TV web på hjemmenettet
         Health.check(this, true);
 
         ScrollView sv = new ScrollView(this);
@@ -196,6 +197,7 @@ public class HomeActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         Catalog.listeners.add(onData);
+        Sync.periodic(this);
         Sports.refresh(this);
         final android.content.Context app = getApplicationContext();
         Bg.run("home-guide", () -> Sports.guide(app));
