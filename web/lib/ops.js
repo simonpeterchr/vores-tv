@@ -24,15 +24,45 @@ function device(ua = '') {
   return 'Browser';
 }
 /** Kaldes ved hver afspilnings-forespørgsel (HLS henter playlisten hvert par sekunder). */
+const keyOf = (user, ip, ua) => user + '|' + ip + '|' + device(ua);
 function seenStream(user, ip, ua, title, kind, remote) {
-  const key = user + '|' + ip + '|' + device(ua);
-  viewers.set(key, { user, device: device(ua), title, kind, via: remote ? 'udefra' : 'hjemme', at: Date.now() });
+  const key = keyOf(user, ip, ua);
+  if (kicked.has(key)) return;
+  viewers.set(key, { key, user, device: device(ua), title, kind, via: remote ? 'udefra' : 'hjemme', at: Date.now() });
+}
+
+// ---- kun én stream ad gangen: den der starter sidst, overtager ----
+const kicked = new Map(); // nøgle -> {by, at}  (browsere der skal stoppe)
+function kickedBy(user, ip, ua) {
+  const k = kicked.get(keyOf(user, ip, ua));
+  if (!k) return null;
+  if (Date.now() - k.at > 60e3) { kicked.delete(keyOf(user, ip, ua)); return null; }
+  return k.by;
+}
+function clearKick(user, ip, ua) { kicked.delete(keyOf(user, ip, ua)); }
+/** Andre, der ser noget på samme login (undtagen den der spørger). */
+function others(user, ip, ua) {
+  const me = keyOf(user, ip, ua);
+  return activeViewers().filter(v => v.user === user && v.key !== me);
+}
+/** Stop alle andre på samme login. Browsere stoppes her; tv'er returneres, så de kan bedes om at stoppe. */
+function takeover(user, byDevice, exceptKey) {
+  const tvs = [];
+  for (const [k, v] of viewers) {
+    if (v.user !== user || k === exceptKey) continue;
+    if (v.tv) tvs.push(v); else kicked.set(k, { by: byDevice, at: Date.now() });
+    viewers.delete(k);
+  }
+  return tvs;
 }
 /** Tv'erne melder selv, hvad de viser (hvert minut, og "stop" når de holder op). */
-function tvPlaying(user, name, title, kind) {
+function tvPlaying(user, name, title, kind, ip) {
   const key = user + '|tv|' + name;
-  if (!title) viewers.delete(key);
-  else viewers.set(key, { user, device: name, title, kind, via: 'tv', at: Date.now(), tv: true });
+  if (!title) { viewers.delete(key); return false; }
+  const isNew = !viewers.has(key) || viewers.get(key).title !== title;
+  viewers.set(key, { key, user, device: name, title, kind, via: 'tv', at: Date.now(), tv: true, ip });
+  if (isNew) takeover(user, name, key); // tv'et er gået i gang: browserne på samme login stopper
+  return isNew;
 }
 function activeViewers() {
   const now = Date.now(), out = [];
@@ -129,4 +159,4 @@ function setCfg(p) {
   saveCfg();
 }
 
-module.exports = { seenStream, tvPlaying, activeViewers, sawRemote, tunnel, notify, backup, backupInfo, server, setCfg, cfg: () => cfg };
+module.exports = { seenStream, tvPlaying, others, takeover, kickedBy, clearKick, keyOf, device, activeViewers, sawRemote, tunnel, notify, backup, backupInfo, server, setCfg, cfg: () => cfg };

@@ -151,7 +151,10 @@ public class VodPlayerActivity extends Activity {
         root.addView(tracks, tl);
     }
 
+    private boolean retriedBusy;
+
     @Override protected void onResume() {
+        PlayerActivity.current = new java.lang.ref.WeakReference<>(this);
         super.onResume();
         player = Play.create(this);
         player.setVideoSurfaceView(surface);
@@ -168,6 +171,13 @@ public class VodPlayerActivity extends Activity {
             }
             @Override public void onIsPlayingChanged(boolean p) { update(); if (!p) show(0); else show(3_500); }
             @Override public void onPlayerError(PlaybackException e) {
+                if (Http.busy(e) && !retriedBusy) {
+                    retriedBusy = true;
+                    state.setText("Forbindelsen er i brug et andet sted – overtager …");
+                    show(0);
+                    h.postDelayed(() -> { if (player != null) start(idx, true); }, 4_000);
+                    return;
+                }
                 state.setText(Http.playback(e));
                 show(0);
             }
@@ -183,6 +193,7 @@ public class VodPlayerActivity extends Activity {
         h.removeCallbacksAndMessages(null);
         if (player != null) { player.release(); player = null; }
         Sync.playing(this, null, null);
+        if (PlayerActivity.current != null && PlayerActivity.current.get() == this) PlayerActivity.current = null;
     }
 
     private String key(int i) { return (Vod.MOVIE.equals(kind) ? "m:" : "e:") + ids[i]; }

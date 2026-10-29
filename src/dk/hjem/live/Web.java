@@ -169,6 +169,18 @@ final class Web {
     /** "Spil på tv" fra Vores TV web: åbner kanalen eller filmen her på tv'et. */
     private static boolean remote(Context c, Map<String, String> f) {
         String kind = f.get("kind");
+        if ("stop".equals(kind)) { // webappen overtager den ene forbindelse
+            final String by = f.get("by") == null ? "en anden" : f.get("by");
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                android.app.Activity a = PlayerActivity.current != null ? PlayerActivity.current.get() : null;
+                if (a != null) {
+                    android.widget.Toast.makeText(a, "Overtaget af " + by + " (kun én stream ad gangen)", android.widget.Toast.LENGTH_LONG).show();
+                    a.finish();
+                }
+            });
+            remoteMsg = "Stoppet.";
+            return true;
+        }
         android.content.Intent it;
         if ("live".equals(kind)) {
             int id = num(f.get("id"));

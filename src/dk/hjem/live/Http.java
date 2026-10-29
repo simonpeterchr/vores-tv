@@ -27,6 +27,16 @@ final class Http {
         return "Kan ikke afspille lige nu.";
     }
 
+    /** Udbyderen afviste, fordi forbindelsen (kun én ad gangen) er i brug et andet sted. */
+    static boolean busy(Throwable t) {
+        for (Throwable c = t; c != null; c = c.getCause())
+            if (c instanceof androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
+                int code = ((androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) c).responseCode;
+                return code == 403 || code == 458 || code == 509;
+            }
+        return false;
+    }
+
     static String friendly(Exception e) {
         if (e instanceof java.net.SocketTimeoutException) return "Udbyderen svarer ikke lige nu – prøv igen om lidt.";
         if (e instanceof java.net.UnknownHostException) return "Ingen forbindelse til internettet eller udbyderen.";

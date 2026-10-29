@@ -145,7 +145,18 @@ const Player = {
   el: $('#player'), v: $('#video'), mode: null, ctx: null, hls: null, ts: null, slot: null, tried: null, saveT: 0, infoT: 0,
 
   /** ctx: {type:'live', ch, list, streams?, idx?, title?} eller {type:'vod', kind, id, ext, title, sub, poster, seriesId, start, next} */
-  open(ctx, mode = 'full') {
+  async open(ctx, mode = 'full') {
+    if (!(this.ctx && this.mode)) { // ny afspilning (ikke zap): kun én stream ad gangen hos udbyderen
+      try {
+        const b = await api('/api/busy');
+        if (b.others.length) {
+          const o = b.others[0];
+          if (!confirm(o.device + ' ser "' + o.title + '" lige nu.\n\nJeres abonnement tillader kun én stream ad gangen. Vil du overtage?')) return;
+          toast('Overtager fra ' + o.device + ' …');
+          await api('/api/takeover', {});
+        }
+      } catch { }
+    }
     this.ctx = ctx;
     this.setMode(mode);
     this.load();
@@ -199,6 +210,12 @@ const Player = {
     return c.type === 'live' ? '/play/live/' + this.cur().id + '.m3u8' : '/play/' + c.kind + '/' + c.id + '.' + (c.ext || 'mp4');
   },
 
+  async takeBack() {
+    this.msg(null); this.spin(true);
+    try { await api('/api/takeover', {}); } catch { }
+    this.load();
+  },
+
   castEnded() {
     if (!this.ctx) return;
     toast('Casting stoppet – fortsætter her');
@@ -247,7 +264,8 @@ const Player = {
         if (!d.fatal) return;
         if (d.type === Hls.ErrorTypes.MEDIA_ERROR && !h._recovered) { h._recovered = 1; h.recoverMediaError(); return; }
         const txt = d.networkDetails && d.networkDetails.responseText;
-        let err = null; try { err = JSON.parse(txt).error; } catch { }
+        let err = null, kicked = false; try { const j = JSON.parse(txt); err = j.error; kicked = j.kicked; } catch { }
+        if (kicked) { this.stopEngines(); this.spin(false); this.msg(esc(err) + (this.mode === 'full' ? '<br><button class="btn" onclick="Player.takeBack()">Overtag igen</button>' : '')); return; }
         this.fail(err, d.response && d.response.code);
       });
       h.on(Hls.Events.MANIFEST_PARSED, () => { v.play().catch(() => { v.muted = true; v.play().catch(() => { }); }); this.topUi(); });

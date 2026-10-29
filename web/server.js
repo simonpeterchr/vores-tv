@@ -141,7 +141,24 @@ const routes = {
   'POST /api/sync': (req, res, q, b) => P.sync(b),
 
   // tv'erne melder, hvad de viser (til "hvem ser hvad")
-  'POST /api/playing': (req, res, q, b) => { Ops.tvPlaying(U.name, String(b.device || 'Tv').slice(0, 40), b.title ? String(b.title).slice(0, 80) : null, b.kind); return { ok: true }; },
+  'POST /api/playing': (req, res, q, b) => { Ops.tvPlaying(U.name, String(b.device || 'Tv').slice(0, 40), b.title ? String(b.title).slice(0, 80) : null, b.kind, String(req.socket.remoteAddress || '').replace(/^::ffff:/, '')); return { ok: true }; },
+
+  // kun én stream ad gangen: hvem ser noget nu, og overtag fra dem
+  'GET /api/busy': async (req, res) => {
+    const ip = String(req.headers['cf-connecting-ip'] || req.socket.remoteAddress || ''), ua = req.headers['user-agent'] || '';
+    Ops.clearKick(U.name, ip, ua);
+    const acc = await P.account();
+    return { others: Ops.others(U.name, ip, ua).map(v => ({ device: v.device, title: v.title, tv: !!v.tv })), max: acc && acc.max || 0, active: acc && acc.active || 0 };
+  },
+  'POST /api/takeover': async (req, res) => {
+    const ip = String(req.headers['cf-connecting-ip'] || req.socket.remoteAddress || ''), ua = req.headers['user-agent'] || '';
+    const tvs = Ops.takeover(U.name, Ops.device(ua), Ops.keyOf(U.name, ip, ua));
+    for (const t of tvs) if (t.ip) { // bed tv'et stoppe (Vores TV 0.43+)
+      try { await fetch('http://' + t.ip + ':8766/remote', { method: 'POST', body: new URLSearchParams({ kind: 'stop', by: Ops.device(ua) }), signal: AbortSignal.timeout(4000) }); } catch { }
+    }
+    await new Promise(r => setTimeout(r, tvs.length ? 2500 : 1200)); // giv udbyderen tid til at frigive forbindelsen
+    return { ok: true, stopped: tvs.map(t => t.device) };
+  },
 
   // status: forbindelser, udbyder – og for husstanden også server, tunnel og backup
   'GET /api/ops/status': async () => {
@@ -295,6 +312,8 @@ async function play(req, res, p, P, owner, suffix = '') {
   if (!P.ok()) return send(res, 401, { error: 'Ikke logget ind.' });
   let m;
   const ip = String(req.headers['cf-connecting-ip'] || req.socket.remoteAddress || ''), ua = req.headers['user-agent'] || '', remote = isRemote(req);
+  const by = Ops.kickedBy(owner, ip, ua);
+  if (by) return send(res, 409, { error: 'Afspilningen blev overtaget af ' + by + ' (kun én stream ad gangen).', kicked: true });
   res.on('finish', () => { if (res.statusCode === 502) P.healthCheck(false); }); // udbyderen svarer ikke: prøv reserve-adresserne nu
   const watch = (title, kind) => {
     Ops.seenStream(owner, ip, ua, title, kind, remote);

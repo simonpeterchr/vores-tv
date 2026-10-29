@@ -278,7 +278,11 @@ public class PlayerActivity extends Activity {
 
     private boolean panelOpen() { return panel.getVisibility() == View.VISIBLE; }
 
+    static java.lang.ref.WeakReference<android.app.Activity> current;
+    private boolean retriedBusy;
+
     @Override protected void onResume() {
+        current = new java.lang.ref.WeakReference<>(this);
         super.onResume();
         Catalog.listeners.add(onData);
         player = Play.create(this);
@@ -286,6 +290,15 @@ public class PlayerActivity extends Activity {
         player.addListener(new Player.Listener() {
             @Override public void onVideoSizeChanged(VideoSize v) { fit(v); }
             @Override public void onPlayerError(PlaybackException e) {
+                if (Http.busy(e) && !retriedBusy && playing != null) { // webappen holder måske forbindelsen – den slipper, når vi melder os
+                    retriedBusy = true;
+                    final Catalog.Ch ch = playing;
+                    infoMsg.setText("Forbindelsen er i brug et andet sted – overtager …");
+                    infoMsg.setVisibility(View.VISIBLE);
+                    showInfo(8_000);
+                    h.postDelayed(() -> { if (player != null && playing == ch) Play.live(player, Cred.load(PlayerActivity.this), ch, false); }, 4_000);
+                    return;
+                }
                 if (!triedHls && playing != null) { triedHls = true; Play.live(player, Cred.load(PlayerActivity.this), playing, true); return; }
                 if (failover && idx < list.size() - 1 && playing != null) {
                     String from = playing.name, to = list.get(idx + 1).name;
@@ -315,6 +328,7 @@ public class PlayerActivity extends Activity {
         if (player != null) { player.release(); player = null; }
         playing = null;
         Sync.playing(this, null, null);
+        if (current != null && current.get() == this) current = null;
     }
 
     private void fit(VideoSize v) {
@@ -342,6 +356,7 @@ public class PlayerActivity extends Activity {
         if (playing != null && playing.id == c.id) return;
         playing = c;
         triedHls = false;
+        retriedBusy = false;
         infoMsg.setVisibility(View.GONE);
         infoRes.setVisibility(View.GONE);
         Play.live(player, Cred.load(this), c, false);
