@@ -92,6 +92,7 @@ final class Web {
                 json(out, 200, "Logget ind med login fra " + (form.get("from") != null ? form.get("from") : "et andet tv") + ".");
                 return;
             }
+            if ("POST".equals(req[0]) && path.equals("/remote")) { json(out, remote(c, form) ? 200 : 400, remoteMsg); return; }
             if ("POST".equals(req[0])) {
                 String back = form.containsKey("back") && form.get("back").startsWith("/") ? form.get("back") : "/";
                 if (path.equals("/login")) {
@@ -161,6 +162,46 @@ final class Web {
 
     private static void redirect(OutputStream out, String to) throws Exception {
         out.write(("HTTP/1.1 303 See Other\r\nLocation: " + to + "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+    }
+
+    private static volatile String remoteMsg = "";
+
+    /** "Spil på tv" fra Vores TV web: åbner kanalen eller filmen her på tv'et. */
+    private static boolean remote(Context c, Map<String, String> f) {
+        String kind = f.get("kind");
+        android.content.Intent it;
+        if ("live".equals(kind)) {
+            int id = num(f.get("id"));
+            if (!Catalog.byId.containsKey(id)) { remoteMsg = "Kanalen findes ikke på dette tv."; return false; }
+            java.util.List<Integer> l = new java.util.ArrayList<>();
+            String ids = f.get("ids");
+            if (ids != null) for (String x : ids.split(",")) { int n = num(x); if (Catalog.byId.containsKey(n) && !l.contains(n)) l.add(n); }
+            if (!l.contains(id)) l.add(0, id);
+            int[] arr = new int[l.size()];
+            for (int i = 0; i < arr.length; i++) arr[i] = l.get(i);
+            it = new android.content.Intent(c, PlayerActivity.class).putExtra("ids", arr).putExtra("i", l.indexOf(id));
+            String t = f.get("title");
+            if (t != null && !t.isEmpty()) it.putExtra("title", t);
+        } else if (Vod.MOVIE.equals(kind) || Vod.SERIES.equals(kind)) {
+            String id = f.get("id"), ext = f.get("ext") == null ? "mp4" : f.get("ext");
+            if (id == null || !id.matches("\\d+") || !ext.matches("\\w{2,5}")) { remoteMsg = "Mangler titel."; return false; }
+            String title = f.get("title") == null ? "" : f.get("title"), sub = f.get("sub") == null ? "" : f.get("sub");
+            long pos = 0;
+            try { pos = Long.parseLong(f.get("pos")); } catch (Exception ignored) { }
+            if (pos > 60_000) { // fortsæt det samme sted som i browseren
+                Vod.Resume r = new Vod.Resume();
+                r.key = (Vod.MOVIE.equals(kind) ? "m:" : "e:") + id; r.kind = kind; r.id = id; r.title = title; r.sub = sub;
+                r.poster = f.get("poster"); r.ext = ext; r.seriesId = f.get("seriesId"); r.pos = pos; r.dur = pos + 3_600_000L;
+                Vod.saveResume(c, r);
+            }
+            it = new android.content.Intent(c, VodPlayerActivity.class).putExtra("kind", kind).putExtra("seriesId", f.get("seriesId")).putExtra("poster", f.get("poster"))
+                    .putExtra("ids", new String[]{id}).putExtra("titles", new String[]{title}).putExtra("subs", new String[]{sub}).putExtra("exts", new String[]{ext})
+                    .putExtra("i", 0).putExtra("resume", pos > 60_000);
+        } else { remoteMsg = "Ukendt indhold."; return false; }
+        it.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        try { c.startActivity(it); } catch (Exception e) { remoteMsg = "Tv'et ville ikke åbne afspilleren."; return false; }
+        remoteMsg = "Spiller nu.";
+        return true;
     }
 
     private static int num(String s) { try { return Integer.parseInt(s); } catch (Exception e) { return 0; } }

@@ -182,6 +182,7 @@ public class VodPlayerActivity extends Activity {
         saveResume();
         h.removeCallbacksAndMessages(null);
         if (player != null) { player.release(); player = null; }
+        Sync.playing(this, null, null);
     }
 
     private String key(int i) { return (Vod.MOVIE.equals(kind) ? "m:" : "e:") + ids[i]; }
@@ -198,6 +199,7 @@ public class VodPlayerActivity extends Activity {
         player.setPlayWhenReady(true);
         title.setText(titles[i]);
         sub.setText(subs != null && subs[i] != null ? subs[i] : "");
+        Sync.playing(this, titles[i] + (subs != null && subs[i] != null && !subs[i].isEmpty() ? " · " + subs[i] : ""), kind);
         cues.setText("");
         nextBox.setVisibility(View.GONE);
         show(5_000);

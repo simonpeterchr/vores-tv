@@ -47,6 +47,18 @@ const bar = p => `<div class="bar"><i style="width:${Math.round(p * 100)}%"></i>
 const TABS = [['sog', 'Søg'], ['hjem', 'Hjem'], ['live', 'Live-TV'], ['sport', 'Sport'], ['film', 'Film'], ['serier', 'Serier']];
 $('#nav').innerHTML = TABS.map(([k, n]) => `<a href="#/${k}" data-t="${k}">${n}</a>`).join('');
 setInterval(() => { $('#clock').textContent = hm(Date.now()); }, 5000);
+// lille indikator i toppen: forbindelser i brug hos udbyderen (klik = statussiden)
+async function conPill() {
+  try {
+    const d = await fetch('/api/ops/status').then(r => r.ok ? r.json() : null);
+    const el = $('#conpill'); if (!d || !el) return;
+    const a = d.account || {};
+    el.classList.remove('hidden');
+    el.className = 'conpill' + (d.health.problem || a.ok === false ? ' bad' : a.max && a.active >= a.max ? ' full' : '');
+    el.textContent = a.ok === false ? '● Udbyder nede' : a.max ? '● ' + a.active + '/' + a.max : '● Status';
+  } catch { }
+}
+setInterval(conPill, 30000); setTimeout(conPill, 1500);
 $('#clock').textContent = hm(Date.now());
 
 let status = {}, me = {};
@@ -74,13 +86,13 @@ async function route() {
   const g = ++gen;
   const [tab, ...rest] = location.hash.replace(/^#\/?/, '').split('/');
   const t = tab || 'hjem';
-  $$('#nav a').forEach(a => a.classList.toggle('on', a.dataset.t === t || (t === 'kamp' && a.dataset.t === 'sport') || (t === 'titel' && a.dataset.t === (rest[0] === 'series' ? 'serier' : 'film'))));
+  $$('#nav a').forEach(a => a.classList.toggle('on', a.dataset.t === t || (t === 'kamp' && a.dataset.t === 'sport') || (t === 'titel' && a.dataset.t === (rest[0] === 'series' ? 'serier' : 'film')) || (t === 'guide' && a.dataset.t === 'live')));
   if (t !== 'live' && Player.mode === 'mini') Player.close();
   try { [status, me] = await Promise.all([api('/api/status'), api('/api/me')]); } catch { return; }
   if (g !== gen) return;
   if (!status.loggedIn && t !== 'indstillinger') return Views.login(g);
   window.scrollTo(0, 0);
-  const fn = { sog: Views.search, hjem: Views.home, live: Views.live, sport: Views.sport, kamp: Views.match, film: Views.vod, serier: Views.vod, titel: Views.title, indstillinger: Views.settings }[t] || Views.home;
+  const fn = { sog: Views.search, hjem: Views.home, live: Views.live, sport: Views.sport, kamp: Views.match, film: Views.vod, serier: Views.vod, titel: Views.title, indstillinger: Views.settings, status: Views.status, guide: Views.guide }[t] || Views.home;
   view.innerHTML = '<div class="spinner"></div>';
   try { await fn(g, rest.map(decodeURIComponent), t); }
   catch (e) { if (g === gen) view.innerHTML = `<div class="alert">${esc(e.message)}</div>`; }
@@ -293,6 +305,7 @@ const Player = {
     const h = this.hls;
     if (h && (h.audioTracks.length > 1 || h.subtitleTracks.length)) acts.push(['tracks', 'Lyd og tekst']);
     if (this.airplay) acts.push(['airplay', 'AirPlay']);
+    if (me.home && !me.remote) acts.push(['tv', '📺 Spil på tv']);
     if (!Cast.session()) acts.push(['fs', '⛶']);
     $('#pactions').innerHTML = acts.map(([k, n]) => `<button class="pill" data-a="${k}">${esc(n)}</button>`).join('') + (Cast.ok ? '<google-cast-launcher class="pill" title="Chromecast"></google-cast-launcher>' : '');
   },
@@ -340,6 +353,23 @@ const Player = {
         p.innerHTML = d.angles.length ? html : '<h3>Kameravinkler</h3><p class="muted">Ingen ekstra vinkler fundet lige nu.</p>';
         p.onclick = e => { const b = e.target.closest('[data-i]'); if (!b) return; const a = d.angles[+b.dataset.i]; if (c.streams) c.streams[c.idx] = { ...c.streams[c.idx], ch: a.ch }; else c.ch = a.ch; this.load(); };
       });
+    } else if (kind === 'tv') {
+      p.innerHTML = '<h3>Spil på tv</h3><div class="spinner"></div>';
+      api('/api/tvs').then(d => {
+        if (p.dataset.k !== 'tv') return;
+        p.innerHTML = '<h3>Spil på tv</h3>' + (d.tvs.length ? d.tvs.map((t, i) => `<button class="it noimg" data-t="${i}"><div class="n">📺 ${esc(t.name)}</div><div class="s">${esc(t.ip)}</div></button>`).join('')
+          : '<p class="muted" style="margin:8px">Ingen tv\'er fundet. Vores TV skal være åben på tv\'et.</p>');
+        p.onclick = async e => {
+          const b = e.target.closest('[data-t]'); if (!b) return;
+          const t = d.tvs[+b.dataset.t], c = this.ctx;
+          const body = c.type === 'live'
+            ? { ip: t.ip, kind: 'live', id: this.cur().id, ids: (c.list || [this.cur()]).slice(0, 60).map(x => x.id).join(','), title: c.title || '' }
+            : { ip: t.ip, kind: c.kind, id: c.id, ext: c.ext || 'mp4', title: c.title, sub: c.sub || '', poster: c.poster || '', seriesId: c.seriesId || '', pos: Math.round((this.v.currentTime || c.start || 0) * 1000) };
+          b.querySelector('.s').textContent = 'Sender …';
+          try { await api('/api/tv/send', body); toast('Spiller nu på ' + t.name); this.close(); }
+          catch (x) { b.querySelector('.s').textContent = x.message; }
+        };
+      }).catch(x => { p.innerHTML = '<h3>Spil på tv</h3><p class="muted" style="margin:8px">' + esc(x.message) + '</p>'; });
     } else if (kind === 'tracks') {
       const h = this.hls;
       let html = '<h3>Lyd</h3>' + h.audioTracks.map((t, i) => `<button class="it noimg ${i === h.audioTrack ? 'on' : ''}" data-a="${i}"><div class="n">${esc(t.name || t.lang || 'Spor ' + (i + 1))}</div></button>`).join('');
@@ -533,8 +563,8 @@ Views.live = async (g, [cat]) => {
   cat = cat || localStorage.getItem('vt.cat') || (gr.shown[0] || 'fav');
   try { localStorage.setItem('vt.cat', cat); } catch { }
   view.innerHTML = `<div class="livetv">
-    <div class="groups">${groups.map(k => `<button data-g="${esc(k.id)}" class="${k.id === cat ? 'on' : ''}">${esc(k.name)}${k.count ? `<small>${k.count}</small>` : ''}</button>`).join('')}<a class="pill" style="margin-top:12px" href="#/indstillinger/grupper">Vælg grupper</a></div>
-    <div class="groups-m">${groups.map(k => `<button class="pill ${k.id === cat ? 'on' : ''}" data-g="${esc(k.id)}">${esc(k.name)}</button>`).join('')}</div>
+    <div class="groups">${groups.map(k => `<button data-g="${esc(k.id)}" class="${k.id === cat ? 'on' : ''}">${esc(k.name)}${k.count ? `<small>${k.count}</small>` : ''}</button>`).join('')}<a class="pill" style="margin-top:12px" href="#/guide/${encodeURIComponent(cat)}">▦ Guide-gitter</a><a class="pill" style="margin-top:8px" href="#/indstillinger/grupper">Vælg grupper</a></div>
+    <div class="groups-m"><a class="pill" href="#/guide/${encodeURIComponent(cat)}">▦ Gitter</a>${groups.map(k => `<button class="pill ${k.id === cat ? 'on' : ''}" data-g="${esc(k.id)}">${esc(k.name)}</button>`).join('')}</div>
     <div class="chlist" id="chl"><div class="spinner"></div></div>
     <div class="side"><div class="slot" id="slot">Vælg en kanal</div><div class="info" id="info"></div><div class="hint">↑↓ vælger uden at skifte · Enter/klik viser i den lille skærm · igen for fuld skærm</div></div></div>`;
   $$('[data-g]').forEach(b => b.onclick = () => { location.hash = '#/live/' + encodeURIComponent(b.dataset.g); });
@@ -827,5 +857,113 @@ async function drawUsers() {
     if (del && confirm('Slet ' + del.dataset.del + '? Brugerens login, favoritter og "fortsæt" slettes.')) { await api('/api/users/delete', { name: del.dataset.del }); drawUsers(); }
   };
 }
+
+// ---- Status: forbindelser, udbyder, server, tunnel, backup og beskeder ----
+Views.status = async (g) => {
+  const fmtB = n => (n / 1e9 >= 1 ? (n / 1e9).toFixed(1).replace('.', ',') + ' GB' : Math.round(n / 1e6) + ' MB');
+  const ago = t => { if (!t) return 'aldrig'; const s = (Date.now() - t) / 1000; return s < 90 ? 'lige nu' : s < 3600 ? Math.round(s / 60) + ' min siden' : s < 86400 ? Math.round(s / 3600) + ' t siden' : new Date(t).toLocaleDateString('da-DK', { day: 'numeric', month: 'short' }) + ' ' + hm(t); };
+  const up = s => s > 86400 ? Math.floor(s / 86400) + ' d ' + Math.floor(s % 86400 / 3600) + ' t' : Math.floor(s / 3600) + ' t ' + Math.floor(s % 3600 / 60) + ' min';
+  const row = (k, v, cls = '') => `<div class="kv ${cls}"><span>${esc(k)}</span><b>${v}</b></div>`;
+  for (let i = 0; g === gen; i++) {
+    const d = await api('/api/ops/status');
+    if (g !== gen) return;
+    const a = d.account || {};
+    const focus = document.activeElement && view.contains(document.activeElement) && document.activeElement.matches('input');
+    if (!focus) view.innerHTML = `<h1>Status</h1>
+      <h2>Hvem ser hvad <small>${a.max ? a.active + ' af ' + a.max + ' forbindelser i brug hos udbyderen' : ''}</small></h2>
+      <div class="box">${d.viewers.length ? d.viewers.map(v => row((v.tv ? '📺 ' : v.via === 'udefra' ? '🌍 ' : '💻 ') + v.device + (me.admin && v.user !== me.user ? ' · ' + v.user : ''), esc(v.title))).join('') : '<p class="muted">Ingen ser noget gennem Vores TV lige nu.</p>'}
+        <p class="muted" style="margin-top:10px">Udbyderen tæller også apps uden for Vores TV (fx TiviMate). Tv'er med Vores TV 0.43 eller nyere vises her.</p></div>
+      <h2>Udbyder</h2><div class="box">
+        ${row('Status', a.ok === false ? '<span class="bad">' + esc(a.error) + '</span>' : d.health.problem ? '<span class="bad">' + esc(d.health.problem) + '</span>' : '<span class="good">Svarer</span>')}
+        ${a.ok ? row('Svartid', a.ms + ' ms') : ''}${a.exp ? row('Abonnement udløber', new Date(a.exp).toLocaleDateString('da-DK', { day: 'numeric', month: 'long', year: 'numeric' })) : ''}
+        ${row('Reserve-adresser', d.health.alts ? d.health.alts + ' gemt' : 'ingen')}${d.health.switched ? row('Seneste skift', esc(d.health.switched)) : ''}
+        ${row('Kanaler', d.channels.toLocaleString('da-DK'))}</div>
+      ${d.server ? `<h2>Server</h2><div class="box">
+        ${row('Maskine', esc(d.server.host) + ' · Node ' + esc(d.server.node))}${row('Kørt i', up(d.server.uptime))}
+        ${row('Hukommelse', fmtB(d.server.rss) + ' (fri på maskinen: ' + fmtB(d.server.freeMem) + ' af ' + fmtB(d.server.totalMem) + ')')}${row('Brugere', d.users)}</div>
+      <h2>Tunnel <small>tv.simonp.dk</small></h2><div class="box">
+        ${row('Tjeneste', d.tunnel.service == null ? 'ukendt' : d.tunnel.service === 'RUNNING' ? '<span class="good">Kører</span>' : '<span class="bad">' + esc(d.tunnel.service) + '</span>')}${row('Seneste besøg udefra', ago(d.tunnel.lastRemote))}</div>
+      <h2>Backup</h2><div class="box">
+        ${row('Seneste', d.backup.last ? ago(d.backup.last.at) + ' · ' + d.backup.last.files + ' filer' : 'ingen endnu')}${row('Gemte kopier', d.backup.count + ' (de 14 nyeste beholdes)')}${row('Placering', esc(d.backup.dir))}
+        <p class="muted">Tages hver nat kl. 03.30: brugere, favoritter, indstillinger og "fortsæt". IPTV-login og cache kommer ikke med.</p>
+        <form class="form" id="bkf" style="margin-top:10px"><label>Anden placering (valgfrit)<input name="backupDir" placeholder="${esc(d.backup.dir)}"></label><div><button class="btn ghost">Gem placering</button> <button type="button" class="btn ghost" id="bknow">Tag backup nu</button></div></form></div>
+      <h2>Beskeder til telefonen</h2><div class="box">
+        <p>${d.ntfy ? '<span class="good">Slået til.</span> Du får en besked, når udbyderen eller tunnelen går ned – og når de er oppe igen.' : 'Få en besked på telefonen, når udbyderen eller tunnelen går ned. Installér appen <b>ntfy</b> (gratis), abonnér på et emne med et langt, hemmeligt navn, og skriv samme navn her.'}</p>
+        <form class="form" id="ntf" style="margin-top:10px"><label>ntfy-emne<input name="ntfy" placeholder="${d.ntfy ? 'skjult – skriv nyt for at skifte' : 'fx vorestv-' + Math.random().toString(36).slice(2, 10)}"></label><div><button class="btn ghost">Gem</button>${d.ntfy ? ' <button type="button" class="btn ghost" id="ntest">Send test</button> <button type="button" class="btn ghost" id="noff">Slå fra</button>' : ''}</div></form></div>` : ''}`;
+    if (!focus && d.server) {
+      $('#bkf').onsubmit = async e => { e.preventDefault(); await api('/api/ops/cfg', { backupDir: e.target.backupDir.value }); toast('Placering gemt'); i = -1; };
+      $('#bknow').onclick = async () => { const r = await api('/api/ops/backup', {}); toast(r.error ? 'Fejl: ' + r.error : 'Backup taget: ' + r.files + ' filer'); };
+      $('#ntf').onsubmit = async e => { e.preventDefault(); if (!e.target.ntfy.value.trim()) return; await api('/api/ops/cfg', { ntfy: e.target.ntfy.value }); toast('Beskeder slået til'); };
+      if ($('#ntest')) $('#ntest').onclick = async () => toast((await api('/api/ops/test', {})).ok ? 'Testbesked sendt' : 'Kunne ikke sende');
+      if ($('#noff')) $('#noff').onclick = async () => { await api('/api/ops/cfg', { ntfy: '' }); toast('Beskeder slået fra'); };
+    }
+    await sleep(10000);
+  }
+};
+
+// ---- Guide-gitter: kanaler × tid ----
+const REM_KEY = 'vt.reminders';
+const reminders = () => { try { return JSON.parse(localStorage.getItem(REM_KEY) || '{}'); } catch { return {}; } };
+const setReminders = r => { try { localStorage.setItem(REM_KEY, JSON.stringify(r)); } catch { } };
+setInterval(() => { // påmindelser: når programmet starter (mens siden er åben)
+  const r = reminders(), now = Date.now();
+  let changed = false;
+  for (const [k, x] of Object.entries(r)) {
+    if (x.start - 60e3 > now) continue;
+    if (x.start + 30 * 60e3 > now) {
+      toast('▶ ' + x.title + ' starter nu på ' + x.ch, 8000);
+      if (window.Notification && Notification.permission === 'granted') { const n = new Notification(x.title, { body: 'Starter nu på ' + x.ch }); n.onclick = () => { window.focus(); location.hash = '#/live/' + encodeURIComponent(x.cat); }; }
+    }
+    delete r[k]; changed = true;
+  }
+  if (changed) setReminders(r);
+}, 20000);
+
+Views.guide = async (g, [cat]) => {
+  const gr = await api('/api/live/groups');
+  if (g !== gen) return;
+  const groups = [{ id: 'fav', name: 'Favoritter' }].concat(gr.groups.filter(k => k.shown));
+  cat = cat || localStorage.getItem('vt.cat') || (gr.shown[0] || 'fav');
+  const PX = 4; // pixels pr. minut
+  const t0 = Math.floor((Date.now() - 30 * 60e3) / 1800e3) * 1800e3, hours = 12, t1 = t0 + hours * 3600e3;
+  const x = t => Math.round((Math.max(t0, Math.min(t1, t)) - t0) / 60e3 * PX);
+  view.innerHTML = `<div class="pills"><a class="pill" href="#/live/${encodeURIComponent(cat)}">☰ Liste</a>${groups.map(k => `<a class="pill ${k.id === cat ? 'on' : ''}" href="#/guide/${encodeURIComponent(k.id)}">${esc(k.name)}</a>`).join('')}</div>
+    <div class="grid-wrap" id="gw"><div class="spinner"></div></div><div class="hint">Klik på det, der kører nu, for at se det · klik på et senere program for en påmindelse</div>`;
+  let chs = [];
+  const draw = () => {
+    const rem = reminders(), now = Date.now();
+    let head = '';
+    for (let t = t0; t < t1; t += 1800e3) head += `<div class="gt" style="left:${x(t)}px">${hm(t)}</div>`;
+    const rows = chs.map((ch, i) => {
+      const progs = (ch.epg || []).filter(p => p.stop > t0 && p.start < t1).map(p => {
+        const live = p.start <= now && p.stop > now, k = ch.id + '@' + p.start, r = !!rem[k];
+        return `<button class="gp ${live ? 'now' : ''} ${p.stop <= now ? 'past' : ''} ${r ? 'rem' : ''}" style="left:${x(p.start)}px;width:${Math.max(2, x(p.stop) - x(p.start) - 3)}px" data-c="${i}" data-s="${p.start}" title="${esc(hm(p.start) + '–' + hm(p.stop) + ' ' + p.title)}"><b>${r ? '🔔 ' : ''}${esc(p.title)}</b><span>${hm(p.start)}–${hm(p.stop)}</span></button>`;
+      }).join('');
+      return `<div class="grow"><button class="gch" data-ch="${i}">${logo(ch.logo, ch.name)}<span>${esc(ch.name)}</span></button><div class="gline" style="width:${x(t1)}px">${progs || '<div class="gnone">Ingen programguide</div>'}</div></div>`;
+    }).join('');
+    const gw = $('#gw'); if (!gw) return;
+    const sl = gw.scrollLeft, st = gw.scrollTop;
+    gw.innerHTML = `<div class="ghead"><div class="gcorner"></div><div class="gline" style="width:${x(t1)}px">${head}<div class="gnow" style="left:${x(now)}px"></div></div></div>${rows}<div class="gnowline" style="left:${x(now) + 210}px"></div>`;
+    gw.scrollLeft = sl || Math.max(0, x(now) - 120); gw.scrollTop = st;
+  };
+  $('#gw').onclick = e => {
+    const c = e.target.closest('[data-ch]'), p = e.target.closest('.gp');
+    if (c) return Player.open({ type: 'live', ch: chs[+c.dataset.ch], list: chs });
+    if (!p) return;
+    const ch = chs[+p.dataset.c], start = +p.dataset.s, prog = ch.epg.find(q => q.start === start);
+    if (prog.start <= Date.now() && prog.stop > Date.now()) return Player.open({ type: 'live', ch, list: chs });
+    if (prog.stop <= Date.now()) return toast('Programmet er slut');
+    const r = reminders(), k = ch.id + '@' + start;
+    if (r[k]) { delete r[k]; toast('Påmindelse fjernet'); }
+    else { r[k] = { title: prog.title, ch: ch.name, start, cat }; toast('🔔 Påmindelse kl. ' + hm(start) + ' – hold siden åben'); if (window.Notification && Notification.permission === 'default') Notification.requestPermission(); }
+    setReminders(r); draw();
+  };
+  for (let i = 0; g === gen; i++) {
+    const d = await api('/api/live/grid?cat=' + encodeURIComponent(cat));
+    if (g !== gen) return;
+    chs = d.channels; draw();
+    await sleep(d.pending ? 4000 : 60000);
+  }
+};
 
 route();

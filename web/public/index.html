@@ -9,13 +9,13 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg">
 <title>Vores TV</title>
-<link rel="stylesheet" href="app.css?v=5">
+<link rel="stylesheet" href="app.css?v=6">
 </head>
 <body>
 <header id="top">
   <div class="brand">Vores <b>TV</b></div>
   <nav id="nav"></nav>
-  <div class="right"><span id="clock"></span><a href="#/indstillinger" class="gear" title="Indstillinger" aria-label="Indstillinger">⚙</a></div>
+  <div class="right"><a href="#/status" id="conpill" class="conpill hidden" title="Status"></a><span id="clock"></span><a href="#/indstillinger" class="gear" title="Indstillinger" aria-label="Indstillinger">⚙</a></div>
 </header>
 <main id="view"></main>
 <div id="player" class="hidden" tabindex="-1">
@@ -35,7 +35,7 @@
 <div id="toast" class="hidden"></div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.7.3/dist/mpegts.min.js"></script>
-<script src="app.js?v=4"></script>
+<script src="app.js?v=6"></script>
 <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 </body>
 </html>

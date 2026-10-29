@@ -13,6 +13,7 @@ const C = require('./lib/core');
 const X = require('./lib/provider');
 const SH = require('./lib/sports');
 const Users = require('./lib/users');
+const Ops = require('./lib/ops');
 
 const PORT = +process.env.PORT || 8766;
 const PUB = path.join(__dirname, 'public');
@@ -138,6 +139,41 @@ const routes = {
   },
   'POST /api/resume': (req, res, q, b) => { P.saveResume(b); return { ok: true }; },
   'POST /api/sync': (req, res, q, b) => P.sync(b),
+
+  // tv'erne melder, hvad de viser (til "hvem ser hvad")
+  'POST /api/playing': (req, res, q, b) => { Ops.tvPlaying(U.name, String(b.device || 'Tv').slice(0, 40), b.title ? String(b.title).slice(0, 80) : null, b.kind); return { ok: true }; },
+
+  // status: forbindelser, udbyder – og for husstanden også server, tunnel og backup
+  'GET /api/ops/status': async () => {
+    const acc = await P.account();
+    if (acc && acc.ok === false) P.healthCheck(false);
+    const out = { account: acc, viewers: Ops.activeViewers().filter(v => U.admin || v.user === U.name), health: { problem: P.health.problem, switched: P.health.switched, alts: P.ok() ? (P.cred().alts || []).length : 0 }, channels: P.catalog.channels.length };
+    if (U.admin) Object.assign(out, { server: Ops.server(), tunnel: await Ops.tunnel(), backup: Ops.backupInfo(), ntfy: !!Ops.cfg().ntfy, users: Users.list().length, ctxs: ctxs.size });
+    return out;
+  },
+
+  // guide-gitter: alle kanaler i en gruppe med programguide for de næste timer
+  'GET /api/live/grid': (req, res, q) => {
+    const cat = q.get('cat');
+    let list = cat === 'fav' ? P.favorites() : P.inCategory(cat);
+    list = list.filter(ch => !P.separator(ch) && !P.evOf(ch)).slice(0, 120);
+    return { channels: list.map(ch => chOut(ch, 30)), pending: P.epgPending() };
+  },
+
+  // send til tv: find tv'erne i huset og bed et af dem spille (kun husstanden, kun hjemme)
+  'GET /api/tvs': async (req, res) => (U.name === Users.HOME && !U.remote) ? { tvs: await findTvs(false) } : send(res, 403, { error: 'Kun hjemme' }),
+  'POST /api/tv/send': async (req, res, q, b) => {
+    if (U.name !== Users.HOME || U.remote) return send(res, 403, { error: 'Kun hjemme' });
+    const tv = (await findTvs(false)).find(t => t.ip === b.ip);
+    if (!tv) return send(res, 404, { error: 'Tv\'et svarer ikke – er Vores TV åben på det?' });
+    const form = new URLSearchParams();
+    for (const k of ['kind', 'id', 'ids', 'ext', 'title', 'sub', 'poster', 'seriesId', 'pos']) if (b[k] != null) form.set(k, String(b[k]));
+    try {
+      const r = await fetch('http://' + tv.ip + ':8766/remote', { method: 'POST', body: form, signal: AbortSignal.timeout(8000) });
+      const t = await r.text();
+      return r.ok ? { ok: true, name: tv.name, msg: t } : send(res, 502, { error: t || 'Tv\'et afviste.' });
+    } catch { return send(res, 502, { error: 'Kunne ikke nå ' + tv.name + '.' }); }
+  },
   'GET /api/continue': (req, res, q) => P.continueList(q.get('kind')),
 
   // søg
@@ -223,9 +259,10 @@ function rewrite(text, base, owner, suffix = '') {
   }).join('\n');
 }
 
-function upstreamFail(res, e, code) {
+function upstreamFail(res, e, code, owner) {
+  const busy = Ops.activeViewers().filter(v => v.user === owner).map(v => v.device + ' (' + v.title + ')');
   const msg = code === 403 || code === 458 || code === 509
-    ? 'Udbyderen afviste afspilningen (' + code + '). Det sker typisk, når jeres login allerede bruges på et andet tv. Stop det, og prøv igen.'
+    ? 'Udbyderen afviste afspilningen (' + code + '). ' + (busy.length ? 'I brug lige nu: ' + busy.join(', ') + '. Stop en af dem, og prøv igen.' : 'Det sker typisk, når jeres login allerede bruges på et andet tv. Stop det, og prøv igen.')
     : code === 404 ? 'Udbyderen har ikke kanalen eller filen lige nu (404).' : code ? 'Udbyderen svarede med fejl ' + code + '.' : X.friendly(e);
   if (!res.headersSent) send(res, 502, { error: msg, code: code || 0 });
   else res.destroy();
@@ -238,18 +275,18 @@ async function proxy(req, res, url, { playlist, type, owner, suffix } = {}) {
     const h = { 'User-Agent': X.UA };
     if (req.headers.range) h.Range = req.headers.range;
     const r = await fetch(url, { headers: h, redirect: 'follow', signal: ac.signal });
-    if (!r.ok && r.status !== 206) { r.body?.cancel().catch(() => { }); return upstreamFail(res, null, r.status); }
+    if (!r.ok && r.status !== 206) { r.body?.cancel().catch(() => { }); return upstreamFail(res, null, r.status, owner); }
     const ct = r.headers.get('content-type') || '';
     if (playlist || /mpegurl/i.test(ct) || /\.m3u8(\?|$)/.test(r.url)) {
       const t = await r.text();
-      if (!t.startsWith('#EXTM3U')) return upstreamFail(res, null, 404);
+      if (!t.startsWith('#EXTM3U')) return upstreamFail(res, null, 404, owner);
       return send(res, 200, rewrite(t, r.url, owner, suffix), 'application/vnd.apple.mpegurl');
     }
     const out = { 'Content-Type': type || ct || 'application/octet-stream', 'Cache-Control': 'no-store', 'Accept-Ranges': 'bytes' };
     for (const k of ['content-length', 'content-range']) { const v = r.headers.get(k); if (v) out[k] = v; }
     res.writeHead(r.status, out);
     Readable.fromWeb(r.body).on('error', () => res.destroy()).pipe(res);
-  } catch (e) { if (e.name !== 'AbortError') upstreamFail(res, e); }
+  } catch (e) { if (e.name !== 'AbortError') upstreamFail(res, e, 0, owner); }
 }
 
 const VTYPE = { mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/mp4', mkv: 'video/webm', webm: 'video/webm', avi: 'video/x-msvideo', ts: 'video/mp2t' };
@@ -257,6 +294,15 @@ const VTYPE = { mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/mp4', mkv: 'vide
 async function play(req, res, p, P, owner, suffix = '') {
   if (!P.ok()) return send(res, 401, { error: 'Ikke logget ind.' });
   let m;
+  const ip = String(req.headers['cf-connecting-ip'] || req.socket.remoteAddress || ''), ua = req.headers['user-agent'] || '', remote = isRemote(req);
+  res.on('finish', () => { if (res.statusCode === 502) P.healthCheck(false); }); // udbyderen svarer ikke: prøv reserve-adresserne nu
+  const watch = (title, kind) => {
+    Ops.seenStream(owner, ip, ua, title, kind, remote);
+    const t = setInterval(() => Ops.seenStream(owner, ip, ua, title, kind, remote), 10e3); // lange forbindelser (.ts, film)
+    res.on('close', () => clearInterval(t));
+  };
+  if ((m = /^\/play\/live\/(\d+)\./.exec(p))) { const ch = P.catalog.byId.get(+m[1]); watch(ch ? (P.evOf(ch) ? C.nice(P.evOf(ch).title) : ch.name) : 'Live-tv', 'live'); }
+  else if ((m = /^\/play\/(movie|series)\/([\w-]+)\./.exec(p))) watch(P.vodName(m[1], m[2]), m[1]);
   if ((m = /^\/play\/live\/(\d+)\.(m3u8|ts)$/.exec(p))) return proxy(req, res, P.liveUrl(m[1], m[2] === 'm3u8'), { playlist: m[2] === 'm3u8', type: m[2] === 'ts' ? 'video/mp2t' : null, owner, suffix });
   if ((m = /^\/play\/(movie|series)\/([\w-]+)\.(\w+)$/.exec(p))) return proxy(req, res, P.vodUrl(m[1], m[2], m[3]), { type: VTYPE[m[3].toLowerCase()], owner });
   if ((m = /^\/seg\/([\w-]+)$/.exec(p))) { const t = tokens.get(m[1]); if (!t || t.owner !== owner) return send(res, 410, { error: 'Udløbet' }); return proxy(req, res, t.url, { owner, suffix }); }
@@ -296,6 +342,50 @@ function refreshAll() {
   SH.refresh(codes);
 }
 
+// ---- tv'erne i huset (Vores TV-appen svarer på /hello på port 8766) ----
+let tvCache = { at: 0, list: [] }, tvScan = null;
+function findTvs(force) {
+  if (!force && Date.now() - tvCache.at < 5 * 60e3) return Promise.resolve(tvCache.list);
+  if (tvScan) return tvScan;
+  const mine = Object.values(os.networkInterfaces()).flat().filter(a => a && a.family === 'IPv4' && !a.internal && /^(192\.168|10\.|172\.)/.test(a.address)).map(a => a.address);
+  tvScan = (async () => {
+    const found = [];
+    for (const me of mine) {
+      const base = me.slice(0, me.lastIndexOf('.') + 1);
+      const ips = []; for (let i = 1; i < 255; i++) if (base + i !== me) ips.push(base + i);
+      await Promise.all(Array.from({ length: 48 }, async () => {
+        while (ips.length) {
+          const ip = ips.shift();
+          try {
+            const o = await (await fetch('http://' + ip + ':8766/hello', { signal: AbortSignal.timeout(900) })).json();
+            if (o && o.app === 'vorestv' && !o.web) found.push({ ip, name: o.name || ip });
+          } catch { }
+        }
+      }));
+    }
+    tvCache = { at: Date.now(), list: found.sort((a, b) => a.name.localeCompare(b.name)) };
+    tvScan = null;
+    return tvCache.list;
+  })();
+  return tvScan;
+}
+
+// ---- alarmer til telefonen: kun når noget skifter (ned → op, op → ned) ----
+const alarm = {};
+async function checkAlarms() {
+  const home = ctxs.get(Users.HOME); if (!home) return;
+  const st = { provider: home.P.health.problem || null };
+  const tn = await Ops.tunnel(); st.tunnel = tn.service && tn.service !== 'RUNNING' ? 'Tunnelen (cloudflared) kører ikke: ' + tn.service : null;
+  st.memory = process.memoryUsage().rss > 1.5e9 ? 'Serveren bruger meget hukommelse (' + Math.round(process.memoryUsage().rss / 1e6) + ' MB).' : null;
+  for (const [k, v] of Object.entries(st)) {
+    if (alarm[k] === undefined) { alarm[k] = v; continue; } // første måling: ingen besked
+    if (v && !alarm[k]) Ops.notify('Vores TV: problem', v, 'high');
+    if (!v && alarm[k]) Ops.notify('Vores TV: i orden igen', { provider: 'Udbyderen svarer igen.', tunnel: 'Tunnelen kører igen.', memory: 'Hukommelsen er normal igen.' }[k]);
+    alarm[k] = v;
+  }
+}
+setInterval(checkAlarms, 60e3).unref();
+
 // Kommer forespørgslen udefra (via Cloudflare-tunnelen)? Så kræves login – altid.
 const isRemote = req => !!(req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || req.headers['cf-ray']);
 const clientIp = req => String(req.headers['cf-connecting-ip'] || req.socket.remoteAddress || '');
@@ -328,6 +418,9 @@ const authRoutes = {
 function adminRoutes(U) {
   return {
     'GET /api/users': () => Users.list(),
+    'POST /api/ops/cfg': (req, res, q, b) => { Ops.setCfg(b); return { ok: true }; },
+    'POST /api/ops/backup': () => { try { return Ops.backup(); } catch (e) { return { error: String(e.message || e) }; } },
+    'POST /api/ops/test': async () => ({ ok: await Ops.notify('Vores TV', 'Test: beskeder virker 👍') }),
     'POST /api/users': (req, res, q, b) => { const e = Users.add(String(b.name || ''), String(b.password || '')); return e ? send(res, 400, { error: e }) : { ok: true }; },
     'POST /api/users/password': (req, res, q, b) => { const e = Users.setPassword(String(b.name || ''), String(b.password || '')); return e ? send(res, 400, { error: e }) : { ok: true }; },
     'POST /api/users/delete': (req, res, q, b) => {
@@ -345,7 +438,7 @@ const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://x');
   const p = u.pathname;
   const key = req.method + ' ' + p;
-  if (remote) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+  if (remote) { res.setHeader('Strict-Transport-Security', 'max-age=31536000'); Ops.sawRemote(); }
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'same-origin');
   try {

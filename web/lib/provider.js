@@ -123,6 +123,30 @@ function logout() {
   vod.cats = {}; vod.items.clear(); search.movies = search.series = null; epg.clear();
 }
 
+// ---- abonnementet: forbindelser i brug, udløb, svartid (fra udbyderens user_info) ----
+let acct = null, acctAt = 0;
+async function account(force) {
+  if (!ok()) return null;
+  if (!force && acct && Date.now() - acctAt < 120e3) return acct;
+  const t0 = Date.now();
+  try {
+    const o = await json(api(null, null), 15000);
+    const ui = (o && o.user_info) || {};
+    acct = { active: +ui.active_cons || 0, max: +ui.max_connections || 0, exp: (+ui.exp_date || 0) * 1000, status: ui.status || '', ms: Date.now() - t0, ok: true };
+  } catch (e) { acct = { ok: false, error: friendly(e), ms: Date.now() - t0 }; }
+  acctAt = Date.now();
+  return acct;
+}
+
+/** Navn på en film/serie ud fra det, der allerede er hentet (til "hvem ser hvad"). */
+function vodName(kind, id) {
+  const idx = search[kind === MOVIE ? 'movies' : 'series'];
+  if (idx) for (const e of idx) if (e[0] === id) return e[1];
+  for (const [k, l] of vod.items) if (k.startsWith(kind + '|')) for (const it of l) if (it.id === id) return it.name;
+  for (const v of vod.info.values()) if (v.v.kind === kind && v.v.id === id) return v.v.name;
+  return kind === MOVIE ? 'En film' : 'Et afsnit';
+}
+
 // ---- helbred: skift til en reserve-adresse, hvis hovedadressen holder op med at svare ----
 const health = { problem: null, switched: null, at: 0, running: false };
 async function healthCheck(force) {
@@ -230,25 +254,37 @@ function prefixes() {
   return [...n.keys()].sort((a, b) => a === 'DK' ? -1 : b === 'DK' ? 1 : n.get(b) - n.get(a));
 }
 
-// ---- programguide (kort EPG pr. kanal, hentes efter behov) ----
-const epg = new Map(); // id -> {at, progs}
+// ---- programguide (kort EPG pr. kanal, hentes efter behov – skånsomt over for udbyderen) ----
+// Gemmes på disken, så en genstart ikke henter alt forfra; højst 2 ad gangen med pause imellem,
+// og helt stop i 10 minutter, hvis udbyderen holder op med at svare (ellers kan de blokere jeres adresse).
+const EPG_FILE = path.join(CACHE, 'epg.json');
+const EPG_AGE = 3 * 3600e3;
+const epg = new Map(Object.entries(readJson(EPG_FILE, {})).filter(([, v]) => v && Date.now() - v.at < EPG_AGE).map(([k, v]) => [+k, v]));
+setInterval(() => { try { writeJson(EPG_FILE, Object.fromEntries(epg)); } catch { } }, 5 * 60e3).unref();
 const epgQueue = [], epgQueued = new Set();
-let epgRunning = 0;
+let epgRunning = 0, epgFails = 0, epgPauseUntil = 0, epgTimer = null;
 
 function epgGet(id) { const e = epg.get(id); return e ? e.progs : []; }
 function epgWant(id) {
   const e = epg.get(id);
-  if ((e && Date.now() - e.at < 30 * 60e3) || epgQueued.has(id) || !ok()) return;
+  if ((e && Date.now() - e.at < 45 * 60e3) || epgQueued.has(id) || !ok()) return;
+  if (epgQueue.length > 400) return; // aldrig en kæmpe kø
   epgQueued.add(id); epgQueue.push(id); pumpEpg();
 }
 function pumpEpg() {
-  while (epgRunning < 6 && epgQueue.length) {
-    const id = epgQueue.shift();
-    epgRunning++;
-    shortEpg(id, 12).then(p => epg.set(id, { at: Date.now(), progs: p }))
-      .catch(() => epg.set(id, { at: Date.now() - 25 * 60e3, progs: epgGet(id) })) // prøv igen om 5 min
-      .finally(() => { epgRunning--; epgQueued.delete(id); pumpEpg(); });
-  }
+  if (epgTimer) return;
+  const wait = epgPauseUntil - Date.now();
+  if (wait > 0) { epgTimer = setTimeout(() => { epgTimer = null; pumpEpg(); }, wait); return; }
+  if (epgRunning >= 2 || !epgQueue.length) return;
+  const id = epgQueue.shift();
+  epgRunning++;
+  shortEpg(id, 24).then(p => { epg.set(id, { at: Date.now(), progs: p }); epgFails = 0; })
+    .catch(() => {
+      epg.set(id, { at: Date.now() - 30 * 60e3, progs: epgGet(id) }); // prøv igen om et kvarter
+      if (++epgFails >= 3) { epgPauseUntil = Date.now() + 10 * 60e3; epgFails = 0; }
+    })
+    .finally(() => { epgRunning--; epgQueued.delete(id); epgTimer = setTimeout(() => { epgTimer = null; pumpEpg(); }, 350); });
+  epgTimer = setTimeout(() => { epgTimer = null; pumpEpg(); }, 350);
 }
 const epgPending = () => epgQueue.length + epgRunning;
 
@@ -521,7 +557,7 @@ function searchPrograms(q, max) {
   return out.sort((a, b) => a.start - b.start).slice(0, max);
 }
 
-function warmEpg() { for (const ch of epgChannels()) if (!epg.has(ch.id)) epgWant(ch.id); }
+function warmEpg() { for (const ch of epgChannels().slice(0, 250)) if (!epg.has(ch.id)) epgWant(ch.id); }
 
 function searchVod(kind, q, max) {
   const src = [...(search[kind === MOVIE ? 'movies' : 'series'] || [])];
@@ -546,7 +582,7 @@ const liveUrl = (id, hls) => cred.server + '/live/' + cred.user + '/' + cred.pas
 const vodUrl = (kind, id, ext) => cred.server + '/' + (kind === MOVIE ? 'movie' : 'series') + '/' + cred.user + '/' + cred.pass + '/' + id + '.' + (ext || 'mp4');
 
 return {
-  DATA, state, save, ok, login, logout, health, healthCheck, 
+  DATA, state, save, ok, login, logout, health, healthCheck, account, vodName, 
   catalog, loadCatalog, inCategory, separator, shownGroups, toggleGroup, favorites, toggleFav, moveFav, seen, prefixes,
   epgGet, epgWant, epgPending, MOVIE, SERIES, vod, vodCategories, vodInCategory, vodShownGroups, vodToggleGroup, vodInfo,
   saveResume, continueList, sync, search, buildIndex, evOf, searchChannels, searchPrograms, searchVod, warmEpg, epgChannels,

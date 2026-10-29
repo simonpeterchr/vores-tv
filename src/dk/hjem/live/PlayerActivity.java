@@ -314,6 +314,7 @@ public class PlayerActivity extends Activity {
         h.removeCallbacksAndMessages(null);
         if (player != null) { player.release(); player = null; }
         playing = null;
+        Sync.playing(this, null, null);
     }
 
     private void fit(VideoSize v) {
@@ -345,6 +346,8 @@ public class PlayerActivity extends Activity {
         infoRes.setVisibility(View.GONE);
         Play.live(player, Cred.load(this), c, false);
         Catalog.setLastChannel(this, c.id);
+        String ev = Ev.eventTitle(c);
+        Sync.playing(this, fixedTitle != null ? fixedTitle : ev != null ? ev : c.name, "live");
         Epg.want(this, c.id);
         bindInfo(c);
         showInfo(5_000);

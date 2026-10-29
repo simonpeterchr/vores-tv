@@ -216,5 +216,36 @@ final class Sync {
         if (changed) { Sports.refresh(c); Catalog.changed(); }
     }
 
+    // ---- "hvem ser hvad": tv'et melder, hvad det viser (hvert minut, og stop) ----
+    private static volatile String nowTitle, nowKind;
+    private static final Runnable BEAT = new Runnable() { @Override public void run() { if (nowTitle != null) { report(app, nowTitle, nowKind); MAIN.postDelayed(this, 60_000); } } };
+
+    static void playing(Context c, String title, String kind) {
+        app = c.getApplicationContext();
+        String before = nowTitle;
+        nowTitle = title; nowKind = kind;
+        MAIN.removeCallbacks(BEAT);
+        if (title != null) MAIN.post(BEAT);
+        else if (before != null) report(app, null, null);
+    }
+
+    private static void report(Context c, String title, String kind) {
+        if (c == null) return;
+        final String ip = sp(c).getString("server", null);
+        if (ip == null) return;
+        Bg.run("playing", () -> {
+            try {
+                JSONObject o = new JSONObject().put("device", Share.deviceName(c)).put("title", title == null ? JSONObject.NULL : title).put("kind", kind == null ? JSONObject.NULL : kind);
+                HttpURLConnection con = (HttpURLConnection) new URL("http://" + ip + ":" + Web.PORT + "/api/playing").openConnection();
+                con.setRequestMethod("POST"); con.setDoOutput(true);
+                con.setConnectTimeout(2000); con.setReadTimeout(4000);
+                con.setRequestProperty("Content-Type", "application/json");
+                try (OutputStream out = con.getOutputStream()) { out.write(o.toString().getBytes(StandardCharsets.UTF_8)); }
+                con.getResponseCode();
+                con.disconnect();
+            } catch (Exception ignored) { }
+        });
+    }
+
     static List<String> fields() { List<String> l = new ArrayList<>(); for (String f : FIELDS) l.add(f); return l; }
 }
