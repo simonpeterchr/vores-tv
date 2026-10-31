@@ -905,12 +905,17 @@ Views.status = async (g) => {
         ${row('Seneste', d.backup.last ? ago(d.backup.last.at) + ' · ' + d.backup.last.files + ' filer' : 'ingen endnu')}${row('Gemte kopier', d.backup.count + ' (de 14 nyeste beholdes)')}${row('Placering', esc(d.backup.dir))}
         <p class="muted">Tages hver nat kl. 03.30: brugere, favoritter, indstillinger og "fortsæt". IPTV-login og cache kommer ikke med.</p>
         <form class="form" id="bkf" style="margin-top:10px"><label>Anden placering (valgfrit)<input name="backupDir" placeholder="${esc(d.backup.dir)}"></label><div><button class="btn ghost">Gem placering</button> <button type="button" class="btn ghost" id="bknow">Tag backup nu</button></div></form></div>
+      <h2>Tv'ernes lager</h2><div class="box">
+        ${d.clean ? row('Seneste oprydning', ago(d.clean.at)) + d.clean.tvs.map(t => row(esc(t.name), t.error ? '<span class="bad">' + esc(t.error) + '</span>' : (t.freeMB < 600 ? '<span class="bad">' : '<span class="good">') + t.freeMB + ' MB fri</span> · ryddet ' + t.freedMB + ' MB')).join('') : row('Seneste oprydning', 'ingen endnu')}
+        <p class="muted">Hver nat kl. 04.15 tømmes apps' midlertidige filer (cache) på tv'erne. Du bliver ikke logget ud nogen steder.</p>
+        <div style="margin-top:10px"><button type="button" class="btn ghost" id="clnow">Ryd op nu</button></div></div>
       <h2>Beskeder til telefonen</h2><div class="box">
         <p>${d.ntfy ? '<span class="good">Slået til.</span> Du får en besked, når udbyderen eller tunnelen går ned – og når de er oppe igen.' : 'Få en besked på telefonen, når udbyderen eller tunnelen går ned. Installér appen <b>ntfy</b> (gratis), abonnér på et emne med et langt, hemmeligt navn, og skriv samme navn her.'}</p>
         <form class="form" id="ntf" style="margin-top:10px"><label>ntfy-emne<input name="ntfy" placeholder="${d.ntfy ? 'skjult – skriv nyt for at skifte' : 'fx vorestv-' + Math.random().toString(36).slice(2, 10)}"></label><div><button class="btn ghost">Gem</button>${d.ntfy ? ' <button type="button" class="btn ghost" id="ntest">Send test</button> <button type="button" class="btn ghost" id="noff">Slå fra</button>' : ''}</div></form></div>` : ''}`;
     if (!focus && d.server) {
       $('#bkf').onsubmit = async e => { e.preventDefault(); await api('/api/ops/cfg', { backupDir: e.target.backupDir.value }); toast('Placering gemt'); i = -1; };
       $('#bknow').onclick = async () => { const r = await api('/api/ops/backup', {}); toast(r.error ? 'Fejl: ' + r.error : 'Backup taget: ' + r.files + ' filer'); };
+      $('#clnow').onclick = async e => { e.target.disabled = true; toast('Rydder op – det tager et øjeblik …'); const r = await api('/api/ops/clean', {}); toast(r.tvs ? r.tvs.map(t => t.name + ': ' + (t.error || t.freedMB + ' MB ryddet')).join(' · ') || 'Ingen tv fundet' : 'Fejl'); i = -1; };
       $('#ntf').onsubmit = async e => { e.preventDefault(); if (!e.target.ntfy.value.trim()) return; await api('/api/ops/cfg', { ntfy: e.target.ntfy.value }); toast('Beskeder slået til'); };
       if ($('#ntest')) $('#ntest').onclick = async () => toast((await api('/api/ops/test', {})).ok ? 'Testbesked sendt' : 'Kunne ikke sende');
       if ($('#noff')) $('#noff').onclick = async () => { await api('/api/ops/cfg', { ntfy: '' }); toast('Beskeder slået fra'); };

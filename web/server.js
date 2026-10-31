@@ -138,7 +138,7 @@ const routes = {
     } catch (e) { return send(res, 502, { error: P.friendly(e) }); }
   },
   'POST /api/resume': (req, res, q, b) => { P.saveResume(b); return { ok: true }; },
-  'POST /api/sync': (req, res, q, b) => P.sync(b),
+  'POST /api/sync': (req, res, q, b) => { if (!U.remote) Ops.rememberTv(req.socket.remoteAddress); return P.sync(b); },
 
   // tv'erne melder, hvad de viser (til "hvem ser hvad")
   'POST /api/playing': (req, res, q, b) => { Ops.tvPlaying(U.name, String(b.device || 'Tv').slice(0, 40), b.title ? String(b.title).slice(0, 80) : null, b.kind, String(req.socket.remoteAddress || '').replace(/^::ffff:/, '')); return { ok: true }; },
@@ -165,7 +165,7 @@ const routes = {
     const acc = await P.account();
     if (acc && acc.ok === false) P.healthCheck(false);
     const out = { account: acc, viewers: Ops.activeViewers().filter(v => U.admin || v.user === U.name), health: { problem: P.health.problem, switched: P.health.switched, alts: P.ok() ? (P.cred().alts || []).length : 0 }, channels: P.catalog.channels.length };
-    if (U.admin) Object.assign(out, { server: Ops.server(), tunnel: await Ops.tunnel(), backup: Ops.backupInfo(), ntfy: !!Ops.cfg().ntfy, users: Users.list().length, ctxs: ctxs.size });
+    if (U.admin) Object.assign(out, { server: Ops.server(), tunnel: await Ops.tunnel(), backup: Ops.backupInfo(), clean: Ops.cfg().lastClean || null, ntfy: !!Ops.cfg().ntfy, users: Users.list().length, ctxs: ctxs.size });
     return out;
   },
 
@@ -377,7 +377,7 @@ function findTvs(force) {
           const ip = ips.shift();
           try {
             const o = await (await fetch('http://' + ip + ':8766/hello', { signal: AbortSignal.timeout(900) })).json();
-            if (o && o.app === 'vorestv' && !o.web) found.push({ ip, name: o.name || ip });
+            if (o && o.app === 'vorestv' && !o.web) { found.push({ ip, name: o.name || ip }); Ops.rememberTv(ip, o.name); }
           } catch { }
         }
       }));
@@ -404,6 +404,15 @@ async function checkAlarms() {
   }
 }
 setInterval(checkAlarms, 60e3).unref();
+
+// ---- natlig oprydning af tv'ernes cache kl. ca. 04.15 (login og indstillinger i apps røres ikke) ----
+let cleanDay = null;
+setInterval(async () => {
+  const d = new Date();
+  if (d.getHours() !== 4 || d.getMinutes() < 15 || cleanDay === d.toDateString()) return;
+  cleanDay = d.toDateString();
+  try { await Ops.cleanTvs(await findTvs(true)); } catch (e) { console.error('tv-oprydning', e); }
+}, 60e3).unref();
 
 // Kommer forespørgslen udefra (via Cloudflare-tunnelen)? Så kræves login – altid.
 const isRemote = req => !!(req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || req.headers['cf-ray']);
@@ -439,6 +448,7 @@ function adminRoutes(U) {
     'GET /api/users': () => Users.list(),
     'POST /api/ops/cfg': (req, res, q, b) => { Ops.setCfg(b); return { ok: true }; },
     'POST /api/ops/backup': () => { try { return Ops.backup(); } catch (e) { return { error: String(e.message || e) }; } },
+    'POST /api/ops/clean': async () => Ops.cleanTvs(await findTvs(true)),
     'POST /api/ops/test': async () => ({ ok: await Ops.notify('Vores TV', 'Test: beskeder virker 👍') }),
     'POST /api/users': (req, res, q, b) => { const e = Users.add(String(b.name || ''), String(b.password || '')); return e ? send(res, 400, { error: e }) : { ok: true }; },
     'POST /api/users/password': (req, res, q, b) => { const e = Users.setPassword(String(b.name || ''), String(b.password || '')); return e ? send(res, 400, { error: e }) : { ok: true }; },

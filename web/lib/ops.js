@@ -61,6 +61,7 @@ function tvPlaying(user, name, title, kind, ip) {
   if (!title) { viewers.delete(key); return false; }
   const isNew = !viewers.has(key) || viewers.get(key).title !== title;
   viewers.set(key, { key, user, device: name, title, kind, via: 'tv', at: Date.now(), tv: true, ip });
+  rememberTv(ip, name);
   if (isNew) takeover(user, name, key); // tv'et er gået i gang: browserne på samme login stopper
   return isNew;
 }
@@ -148,6 +149,62 @@ setInterval(() => {
   }
 }, 60e3).unref();
 
+// ---- tv'ernes lager: tøm apps' midlertidige filer (cache) via adb – login og data røres ikke ----
+// Serveren kører som SYSTEM: adb og dens nøgle (som tv'erne har godkendt) ligger i en almindelig brugers profil.
+function adbHome() {
+  if (process.platform !== 'win32') return null;
+  const homes = [process.env.LOCALAPPDATA && path.dirname(path.dirname(process.env.LOCALAPPDATA))];
+  try { for (const u of fs.readdirSync('C:\\Users')) homes.push(path.join('C:\\Users', u)); } catch { }
+  for (const h of homes.filter(Boolean)) {
+    const pk = path.join(h, 'AppData', 'Local', 'Microsoft', 'WinGet', 'Packages');
+    try {
+      for (const d of fs.readdirSync(pk)) if (/^Google\.PlatformTools/i.test(d)) {
+        const p = path.join(pk, d, 'platform-tools', 'adb.exe');
+        if (fs.existsSync(p)) return { exe: p, keys: path.join(h, '.android', 'adbkey') };
+      }
+    } catch { }
+  }
+  return null;
+}
+function adb(args, ms = 20000) {
+  const h = adbHome();
+  const env = Object.assign({}, process.env);
+  if (h && fs.existsSync(h.keys)) env.ADB_VENDOR_KEYS = h.keys;
+  return new Promise(res => execFile(process.env.VORESTV_ADB || (h ? h.exe : 'adb'), args, { timeout: ms, windowsHide: true, env }, (e, out, err) => res({ e, out: String(out || '') + String(err || '') })));
+}
+const freeKb = out => { const l = out.trim().split('\n').pop().trim().split(/\s+/); return +l[3] || 0; };
+/** Tv'er, vi har set på hjemmenettet (gemmes, så natten også finder dem, når appen er lukket). */
+function rememberTv(ip, name) {
+  ip = String(ip || '').replace(/^::ffff:/, '');
+  if (!/^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip)) return;
+  cfg.tvs = cfg.tvs || {};
+  const nm = name || cfg.tvs[ip] || ip;
+  if (cfg.tvs[ip] === nm) return;
+  cfg.tvs[ip] = nm; saveCfg();
+}
+async function cleanTvs(found) {
+  for (const t of found) rememberTv(t.ip, t.name);
+  const tvs = Object.entries(cfg.tvs || {}).map(([ip, name]) => ({ ip, name }));
+  const res = [];
+  for (const tv of tvs) {
+    const t = tv.ip + ':5555';
+    const c = await adb(['connect', t], 10000);
+    if (c.e && !/connected|authenticate/.test(c.out)) { res.push({ name: tv.name, error: 'adb mangler eller svarer ikke' }); continue; }
+    const before = await adb(['-s', t, 'shell', 'df', '/data']);
+    if (/unauthorized|authenticate/.test(c.out + before.out)) { res.push({ name: tv.name, error: 'tv\'et har ikke godkendt serveren (adb)' }); continue; }
+    if (before.e) { res.push({ name: tv.name, error: (before.out.trim().split('\n').pop() || 'fejl').slice(0, 120) }); continue; }
+    await adb(['-s', t, 'shell', 'pm', 'trim-caches', '64G'], 120000);
+    const after = await adb(['-s', t, 'shell', 'df', '/data']);
+    const b = freeKb(before.out), a = freeKb(after.out);
+    res.push({ name: tv.name, freedMB: Math.max(0, Math.round((a - b) / 1024)), freeMB: Math.round(a / 1024) });
+  }
+  cfg.lastClean = { at: Date.now(), tvs: res };
+  saveCfg();
+  const low = res.filter(r => r.freeMB != null && r.freeMB < 600);
+  if (low.length) notify('Vores TV: tv-lager næsten fyldt', low.map(r => r.name + ': ' + r.freeMB + ' MB fri efter oprydning').join('\n'), 'high');
+  return cfg.lastClean;
+}
+
 function server() {
   const m = process.memoryUsage();
   return { uptime: Math.round(process.uptime()), rss: m.rss, heap: m.heapUsed, freeMem: os.freemem(), totalMem: os.totalmem(), node: process.version, platform: process.platform, host: os.hostname() };
@@ -159,4 +216,4 @@ function setCfg(p) {
   saveCfg();
 }
 
-module.exports = { seenStream, tvPlaying, others, takeover, kickedBy, clearKick, keyOf, device, activeViewers, sawRemote, tunnel, notify, backup, backupInfo, server, setCfg, cfg: () => cfg };
+module.exports = { seenStream, tvPlaying, others, takeover, kickedBy, clearKick, keyOf, device, activeViewers, sawRemote, tunnel, notify, backup, backupInfo, cleanTvs, rememberTv, server, setCfg, cfg: () => cfg };
