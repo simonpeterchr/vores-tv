@@ -196,7 +196,11 @@ async function cleanTvs(found) {
     await adb(['-s', t, 'shell', 'pm', 'trim-caches', '64G'], 120000);
     const after = await adb(['-s', t, 'shell', 'df', '/data']);
     const b = freeKb(before.out), a = freeKb(after.out);
-    res.push({ name: tv.name, freedMB: Math.max(0, Math.round((a - b) / 1024)), freeMB: Math.round(a / 1024) });
+    // Philips nulstiller pauseskærmens ventetid til 7 døgn ved genstart – sæt den tilbage, når Hjem-pauseskærmen bruges
+    const ss = (await adb(['-s', t, 'shell', 'settings get secure screensaver_components; settings get system screen_off_timeout'])).out.trim().split(/\s+/);
+    let saver = false;
+    if (/dk\.hjem\.tv/.test(ss[0] || '') && +ss[1] > 3600e3) { await adb(['-s', t, 'shell', 'settings', 'put', 'system', 'screen_off_timeout', '60000']); saver = true; }
+    res.push({ name: tv.name, freedMB: Math.max(0, Math.round((a - b) / 1024)), freeMB: Math.round(a / 1024), saver });
   }
   cfg.lastClean = { at: Date.now(), tvs: res };
   saveCfg();

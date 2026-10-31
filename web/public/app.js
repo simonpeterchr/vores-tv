@@ -907,7 +907,7 @@ Views.status = async (g) => {
         <form class="form" id="bkf" style="margin-top:10px"><label>Anden placering (valgfrit)<input name="backupDir" placeholder="${esc(d.backup.dir)}"></label><div><button class="btn ghost">Gem placering</button> <button type="button" class="btn ghost" id="bknow">Tag backup nu</button></div></form></div>
       <h2>Tv'ernes lager</h2><div class="box">
         ${d.clean ? row('Seneste oprydning', ago(d.clean.at)) + d.clean.tvs.map(t => row(esc(t.name), t.error ? '<span class="bad">' + esc(t.error) + '</span>' : (t.freeMB < 600 ? '<span class="bad">' : '<span class="good">') + t.freeMB + ' MB fri</span> · ryddet ' + t.freedMB + ' MB')).join('') : row('Seneste oprydning', 'ingen endnu')}
-        <p class="muted">Hver nat kl. 04.15 tømmes apps' midlertidige filer (cache) på tv'erne. Du bliver ikke logget ud nogen steder.</p>
+        <p class="muted">Hver nat kl. 04.15 tømmes apps' midlertidige filer (cache) på tv'erne. Du bliver ikke logget ud nogen steder. Har tv'et nulstillet pauseskærmens ventetid (sker ved genstart), sættes den tilbage til 1 minut.</p>
         <div style="margin-top:10px"><button type="button" class="btn ghost" id="clnow">Ryd op nu</button></div></div>
       <h2>Beskeder til telefonen</h2><div class="box">
         <p>${d.ntfy ? '<span class="good">Slået til.</span> Du får en besked, når udbyderen eller tunnelen går ned – og når de er oppe igen.' : 'Få en besked på telefonen, når udbyderen eller tunnelen går ned. Installér appen <b>ntfy</b> (gratis), abonnér på et emne med et langt, hemmeligt navn, og skriv samme navn her.'}</p>
