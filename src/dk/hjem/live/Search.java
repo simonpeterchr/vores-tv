@@ -337,4 +337,61 @@ final class Search {
         for (Hit h : rest) { if (first.size() >= max) break; first.add(h); }
         return first;
     }
+
+    // ---- søgning via Vores TV-serveren: den har et færdigt indeks over alt, så svage tv'er ikke skal gennemsøge 200.000 titler ----
+    static final class Remote { List<Hit> programs = new ArrayList<>(), channels = new ArrayList<>(), movies = new ArrayList<>(), series = new ArrayList<>(); }
+
+    private static volatile String myAcct;
+    private static String acct(Context c) {
+        if (myAcct == null) {
+            try {
+                byte[] d = java.security.MessageDigest.getInstance("SHA-256").digest(Cred.load(c).user.getBytes(StandardCharsets.UTF_8));
+                StringBuilder b = new StringBuilder();
+                for (int i = 0; i < 6; i++) b.append(String.format(Locale.ROOT, "%02x", d[i]));
+                myAcct = b.toString();
+            } catch (Exception e) { myAcct = ""; }
+        }
+        return myAcct;
+    }
+
+    /** Er serveren klar til at søge for dette tv (samme IPTV-login)? Kaldes uden for UI-tråden. */
+    static boolean serverReady(Context c) { return Sync.webServer(c) != null; }
+
+    /** null = serveren kan ikke bruges (ikke fundet, andet login eller fejl) – søg selv. */
+    static Remote remote(Context c, String q, String only, int max) {
+        String ip = Sync.webServer(c);
+        if (ip == null) return null;
+        try {
+            String u = "http://" + ip + ":" + Web.PORT + "/api/search?q=" + java.net.URLEncoder.encode(q, "UTF-8") + "&max=" + max + (only != null ? "&only=" + only : "");
+            HttpURLConnection con = (HttpURLConnection) new URL(u).openConnection();
+            con.setConnectTimeout(1500); con.setReadTimeout(5000);
+            if (con.getResponseCode() != 200) { con.disconnect(); return null; }
+            StringBuilder sb = new StringBuilder();
+            try (BufferedReader r = new BufferedReader(new InputStreamReader(con.getInputStream(), StandardCharsets.UTF_8))) {
+                char[] buf = new char[8192]; int n;
+                while ((n = r.read(buf)) > 0) sb.append(buf, 0, n);
+            } finally { con.disconnect(); }
+            org.json.JSONObject o = new org.json.JSONObject(sb.toString());
+            if (!acct(c).equals(o.optString("acct"))) return null; // andet login end tv'ets: id'erne passer ikke
+            Remote out = new Remote();
+            hits(o.optJSONArray("programs"), out.programs);
+            hits(o.optJSONArray("channels"), out.channels);
+            hits(o.optJSONArray("movies"), out.movies);
+            hits(o.optJSONArray("series"), out.series);
+            return out;
+        } catch (Exception e) { return null; }
+    }
+
+    private static void hits(org.json.JSONArray a, List<Hit> to) {
+        if (a == null) return;
+        for (int i = 0; i < a.length(); i++) {
+            org.json.JSONObject x = a.optJSONObject(i);
+            if (x == null) continue;
+            Hit h = new Hit();
+            h.kind = x.optString("kind"); h.id = x.optString("id", null); h.name = x.optString("name"); h.img = x.optString("img", null);
+            h.sub = x.optString("sub", ""); h.cat = x.optString("cat", null); h.ext = x.optString("ext", null);
+            h.start = x.optLong("start"); h.stop = x.optLong("stop"); h.chId = x.optInt("chId");
+            to.add(h);
+        }
+    }
 }

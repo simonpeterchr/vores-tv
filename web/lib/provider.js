@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const C = require('./core');
 const Logos = require('./logos');
+const FX = require('./findex');
 
 
 const UA = 'Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36';
@@ -526,9 +527,30 @@ const evOf = ch => {
 const chNorm = new WeakMap();
 const normName = ch => { let n = chNorm.get(ch); if (n == null) chNorm.set(ch, n = C.norm(ch.name)); return n; };
 
+// Færdige søgeindeks – bygges igen, når kanallisten eller film/serie-kataloget udskiftes
+const fx = { ch: null, chList: null, vod: {} };
+function chIndex() {
+  if (fx.chList !== catalog.channels) { fx.chList = catalog.channels; fx.ch = FX.build(catalog.channels.map(normName)); }
+  return fx.ch;
+}
+function vodIndex(kind) {
+  const src = search[kind === MOVIE ? 'movies' : 'series'] || [];
+  let x = fx.vod[kind];
+  if (!x || x.src !== src) x = fx.vod[kind] = { src, idx: FX.build(src.map(e => e[6])), ids: new Set(src.map(e => e[0])) };
+  return x;
+}
+
 function searchChannels(q, max) {
-  const out = [], later = [], shown = new Set(shownGroups()), fav = new Set(state.favs);
-  for (const ch of catalog.channels) {
+  const out = [], later = [], shown = new Set(shownGroups()), fav = new Set(state.favs), list = catalog.channels;
+  let pos = FX.candidates(chIndex(), q);
+  if (pos && q.length > 1) { // sportsord: også kanaler i grupper, hvis navn matcher (fx "Bundesliga")
+    const extra = new Set(pos);
+    for (const [id, k] of catalog.cats) if (C.matchNorm(C.norm(k.name), q)) for (const ch of inCategory(id)) { const i = chPos(ch); if (i >= 0) extra.add(i); }
+    pos = Int32Array.from(extra).sort();
+  }
+  const n = pos ? pos.length : list.length;
+  for (let j = 0; j < n; j++) {
+    const ch = list[pos ? pos[j] : j];
     if (/^[#=*~\-_ ]{3,}/.test(ch.name)) continue;
     const k = catalog.cats.get(ch.cat);
     if (!(C.matchNorm(normName(ch), q) || (k && q.length > 1 && C.matchNorm(C.norm(k.name), q)))) continue;
@@ -541,6 +563,14 @@ function searchChannels(q, max) {
   for (const h of later) { if (out.length >= max) break; out.push(h); }
   return out;
 }
+// normaliseret tekst for programmer og løse film/serier gemmes ved siden af (de skrives til disk/sendes ud uændret)
+const normCache = new WeakMap();
+const normOf = (o, t) => { let n = normCache.get(o); if (n == null) normCache.set(o, n = C.norm(t)); return n; };
+let posMap = { list: null, m: null };
+function chPos(ch) {
+  if (posMap.list !== catalog.channels) posMap = { list: catalog.channels, m: new Map(catalog.channels.map((c, i) => [c, i])) };
+  const i = posMap.m.get(ch); return i == null ? -1 : i;
+}
 
 function epgChannels() {
   const l = favorites(), ids = new Set(l.map(c => c.id));
@@ -551,7 +581,7 @@ function epgChannels() {
 function searchPrograms(q, max) {
   const out = [], now = Date.now();
   for (const ch of epgChannels()) for (const p of epgGet(ch.id)) {
-    if (p.stop < now || !C.matchNorm(C.norm(p.title), q)) continue;
+    if (p.stop < now || !C.matchNorm(normOf(p, p.title), q)) continue;
     out.push({ kind: 'program', chId: ch.id, name: p.title, img: ch.logo, start: p.start, stop: p.stop, sub: ch.name });
   }
   return out.sort((a, b) => a.start - b.start).slice(0, max);
@@ -560,13 +590,14 @@ function searchPrograms(q, max) {
 function warmEpg() { for (const ch of epgChannels().slice(0, 250)) if (!epg.has(ch.id)) epgWant(ch.id); }
 
 function searchVod(kind, q, max) {
-  const src = [...(search[kind === MOVIE ? 'movies' : 'series'] || [])];
-  const ids = new Set(src.map(e => e[0]));
+  const x = vodIndex(kind), firstL = [], rest = [], shown = new Set(vodShownGroups(kind));
+  const pos = FX.candidates(x.idx, q);
+  const src = pos ? Array.from(pos, i => x.src[i]) : x.src.slice(), added = new Set();
+  // plus det, Film/Serier-siderne allerede har hentet (virker også før/uden det samlede katalog)
   for (const [key, list] of vod.items) {
     if (!key.startsWith(kind + '|')) continue;
-    for (const it of list) if (!ids.has(it.id)) { ids.add(it.id); src.push([it.id, it.name, it.poster, it.cat, it.year, it.ext, C.norm(it.name)]); }
+    for (const it of list) if (!x.ids.has(it.id) && !added.has(it.id)) { added.add(it.id); src.push([it.id, it.name, it.poster, it.cat, it.year, it.ext, normOf(it, it.name)]); }
   }
-  const firstL = [], rest = [], shown = new Set(vodShownGroups(kind));
   for (const e of src) {
     if (!C.matchNorm(e[6], q)) continue;
     const h = { kind, id: e[0], name: e[1], img: e[2], cat: e[3], sub: e[4], ext: e[5] };

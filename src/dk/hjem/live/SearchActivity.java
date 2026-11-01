@@ -99,8 +99,8 @@ public class SearchActivity extends Activity {
         sv.addView(results);
         root.addView(sv, Ui.at(0, px.p(300), -1, px.p(780)));
 
-        Search.index(this);
-        Search.warmEpg(this);
+        final android.content.Context app0 = getApplicationContext();
+        searcher.execute(() -> { if (!Search.serverReady(app0)) { Search.index(app0); Search.warmEpg(app0); } }); // med serveren i huset: intet tungt lokalt indeks
         String q = getIntent().getStringExtra("q");
         if (q != null && !q.isEmpty()) { field.setText(q); filters.getChildAt(0).requestFocus(); } // søgeord givet udefra: intet tastatur
         else field.requestFocus();
@@ -142,7 +142,6 @@ public class SearchActivity extends Activity {
         final String q = field.getText().toString();
         final List<String[]> qq = Search.query(q);
         if (qq.isEmpty()) { results.removeAllViews(); status.setText(Search.indexing() ? (Search.progress != null ? Search.progress : "Indlæser film og serier til søgning …") : ""); return; }
-        Search.index(this); // prøv igen, hvis en tidligere indlæsning fejlede
         final int my = gen.incrementAndGet();
         final boolean live = filter == 0 || filter == 1, mov = filter == 0 || filter == 2, ser = filter == 0 || filter == 3;
         final int max = filter == 0 ? 24 : 120;
@@ -150,6 +149,12 @@ public class SearchActivity extends Activity {
         final android.content.Context app = getApplicationContext();
         searcher.execute(() -> {
             if (my != gen.get()) return; // en nyere søgning er på vej
+            Search.Remote r = Search.remote(app, q, live && !mov ? "live" : mov && !live && !ser ? "movies" : ser && !live && !mov ? "series" : null, max);
+            if (r != null) {
+                h.post(() -> { if (my == gen.get() && !isFinishing()) show(r.programs, r.channels, r.movies, r.series, live, mov, ser); });
+                return;
+            }
+            Search.index(app); // ingen server: søg selv (prøver igen, hvis en tidligere indlæsning fejlede)
             final List<Search.Hit> progs = live ? Search.programs(app, qq, max) : new java.util.ArrayList<>();
             final List<Search.Hit> ch = live ? Search.channels(app, qq, max) : new java.util.ArrayList<>();
             final List<Search.Hit> m = mov ? Search.vod(app, Vod.MOVIE, qq, max) : new java.util.ArrayList<>();

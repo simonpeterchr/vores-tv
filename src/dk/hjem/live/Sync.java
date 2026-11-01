@@ -60,6 +60,15 @@ final class Sync {
 
     static void periodic(Context c) { if (System.currentTimeMillis() - lastRun > 5 * 60_000L) now(c, false); }
 
+    private static volatile String okIp; private static volatile long okAt;
+    /** Vores TV-serveren i huset, hvis den findes (tjekkes højst hvert 10. minut). Kaldes uden for UI-tråden. */
+    static String webServer(Context c) {
+        if (okIp != null && System.currentTimeMillis() - okAt < 10 * 60_000L) return okIp;
+        String ip = server(c);
+        okIp = ip; okAt = System.currentTimeMillis();
+        return ip;
+    }
+
     private static String server(Context c) {
         SharedPreferences p = sp(c);
         String ip = p.getString("server", null);

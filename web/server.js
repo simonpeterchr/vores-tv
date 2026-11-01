@@ -198,8 +198,13 @@ const routes = {
     P.buildIndex(); P.warmEpg();
     const qq = C.query(q.get('q') || '');
     if (!qq.length) return { channels: [], programs: [], movies: [], series: [] };
+    const max = Math.min(200, +q.get('max') || 0), only = q.get('only'); // tv-appen beder om sit eget antal og filter
+    const want = k => !only || only === k || (only === 'live' && (k === 'channels' || k === 'programs'));
     return {
-      channels: P.searchChannels(qq, 40), programs: P.searchPrograms(qq, 40), movies: P.searchVod(P.MOVIE, qq, 60), series: P.searchVod(P.SERIES, qq, 60),
+      acct: P.ok() ? crypto.createHash('sha256').update(P.cred().user).digest('hex').slice(0, 12) : null, // så tv'et kan se, at det er samme IPTV-login
+      ready: { movies: !!P.search.movies, series: !!P.search.series },
+      channels: want('channels') ? P.searchChannels(qq, max || 40) : [], programs: want('programs') ? P.searchPrograms(qq, max || 40) : [],
+      movies: want('movies') ? P.searchVod(P.MOVIE, qq, max || 60) : [], series: want('series') ? P.searchVod(P.SERIES, qq, max || 60) : [],
       progress: P.search.progress || (P.epgPending() ? 'Henter programguide …' : null),
     };
   },
