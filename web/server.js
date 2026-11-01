@@ -124,6 +124,8 @@ const routes = {
 
   // film og serier
   'GET /api/vod/collections': () => ({ acct: acctOf(P), ...Co.lists() }),
+  'GET /api/jul': (req, res, q) => ({ acct: acctOf(P), ...Co.calendar(q.get('demo') === '1') }),
+  'POST /api/jul/open': (req, res, q, b) => { const r = Co.openDoor(b.day); return r.error ? send(res, 400, r) : r; },
   'GET /api/vod/groups': (req, res, q) => {
     const kind = q.get('kind'), m = P.vodCategories(kind), shown = P.vodShownGroups(kind);
     return { loading: !m.size, shown, groups: [...m.values()].map(k => ({ id: k.id, name: k.name, prefix: k.prefix, shown: shown.includes(k.id) })) };

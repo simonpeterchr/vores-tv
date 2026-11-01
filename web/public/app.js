@@ -45,6 +45,7 @@ const bar = p => `<div class="bar"><i style="width:${Math.round(p * 100)}%"></i>
 
 // ---- navigation ----
 const TABS = [['sog', 'Søg'], ['hjem', 'Hjem'], ['live', 'Live-TV'], ['sport', 'Sport'], ['film', 'Film'], ['serier', 'Serier']];
+{ const d = new Date(); if (d.getMonth() >= 10 || (d.getMonth() === 0 && d.getDate() <= 6)) TABS.push(['jul', 'Jul']); } // julekalender fra november til helligtrekonger
 $('#nav').innerHTML = TABS.map(([k, n]) => `<a href="#/${k}" data-t="${k}">${n}</a>`).join('');
 setInterval(() => { $('#clock').textContent = hm(Date.now()); }, 5000);
 // lille indikator i toppen: forbindelser i brug hos udbyderen (klik = statussiden)
@@ -92,7 +93,7 @@ async function route() {
   if (g !== gen) return;
   if (!status.loggedIn && t !== 'indstillinger') return Views.login(g);
   window.scrollTo(0, 0);
-  const fn = { sog: Views.search, hjem: Views.home, live: Views.live, sport: Views.sport, kamp: Views.match, film: Views.vod, serier: Views.vod, titel: Views.title, indstillinger: Views.settings, status: Views.status, guide: Views.guide }[t] || Views.home;
+  const fn = { sog: Views.search, hjem: Views.home, live: Views.live, sport: Views.sport, kamp: Views.match, film: Views.vod, serier: Views.vod, titel: Views.title, indstillinger: Views.settings, status: Views.status, guide: Views.guide, jul: Views.jul }[t] || Views.home;
   view.innerHTML = '<div class="spinner"></div>';
   try { await fn(g, rest.map(decodeURIComponent), t); }
   catch (e) { if (g === gen) view.innerHTML = `<div class="alert">${esc(e.message)}</div>`; }
@@ -753,6 +754,58 @@ async function drawCollections(g) {
     el.innerHTML = '<h2>Marvel, Star Wars og Harry Potter</h2><div class="empty">Finder de bedste udgaver … (første gang tager det et par minutter)</div>';
     await sleep(8000);
   }
+}
+
+// ---- Julekalender: én julefilm pakket ind bag hver dato; gaven kan pakkes ud fra sin dag ----
+const PAPER = ['#b3262f', '#1f6f4a', '#c8a14a', '#2a4f8f', '#8e1b24', '#3f7d3a', '#a33a6b', '#245e73'];
+const RIBBON = ['#f3c76a', '#f6f1e7', '#b3262f', '#f3c76a', '#f6f1e7', '#f3c76a', '#f6f1e7', '#f3c76a'];
+Views.jul = async (g, [mode]) => {
+  const demo = mode === 'demo'; // #/jul/demo viser alle gaver pakket ud (gemmes ikke)
+  const d = await api('/api/jul' + (demo ? '?demo=1' : ''));
+  if (g !== gen) return;
+  const days = Math.ceil((new Date(d.year, 11, 1) - Date.now()) / 864e5);
+  const head = d.open ? (d.today ? `${d.today}. december – ${d.doors.find(x => x.day === d.today).opened ? 'dagens gave er pakket ud 🎄' : 'dagens gave venter under træet 🎁'}` : 'Alle gaver kan pakkes ud resten af julen')
+    : `Gaverne må pakkes ud fra 1. december${days > 0 ? ' – om ' + days + (days === 1 ? ' dag' : ' dage') : ''}`;
+  view.innerHTML = `<section class="jul"><canvas class="snow"></canvas><div class="lights">${'<i></i>'.repeat(26)}</div>
+    <div class="jul-head"><h1>Julekalender ${d.year}</h1><p>${esc(head)}${d.ready ? '' : ' · finder filmene …'}</p></div>
+    <div class="doors">${d.doors.map(x => {
+      const f = x.film, i = x.day % PAPER.length;
+      if (x.opened) return `<button class="door open" data-day="${x.day}" ${f && !f.missing ? `data-id="${esc(f.id)}" data-kind="${esc(f.kind)}"` : ''}>${f && f.img ? `<img src="${esc(f.img)}" alt="" loading="lazy">` : ''}<span class="num">${x.day}</span>
+        <span class="lbl">${f ? esc(f.name) : 'Hentes …'}${f && !f.missing ? `<small>${[f.note || f.year, f.quality, f.surround ? '5.1' : '', f.lang && f.lang.startsWith('engelsk, danske') ? 'DK-tekst' : ''].filter(Boolean).join(' · ')}</small>` : f && f.missing ? '<small>findes ikke hos udbyderen</small>' : ''}</span></button>`;
+      return `<button class="door gift${x.canOpen ? ' can' : ''}${x.today ? ' today' : ''}" data-day="${x.day}" style="--paper:${PAPER[i]};--ribbon:${RIBBON[i]}" ${x.canOpen ? '' : 'aria-disabled="true"'} aria-label="Gave ${x.day}">
+        <span class="lid"></span><span class="bow"></span><span class="tag">${x.day}</span>${x.canOpen ? `<span class="hint">${x.today ? 'Pak ud i dag' : 'Pak ud'}</span>` : ''}</button>`;
+    }).join('')}</div></section>`;
+  snow($('.jul .snow'));
+  $$('.door').forEach(b => b.onclick = async () => {
+    const day = +b.dataset.day;
+    if (b.classList.contains('open')) { if (b.dataset.id) location.hash = '#/titel/' + (b.dataset.kind || 'movie') + '/' + encodeURIComponent(b.dataset.id); return; }
+    if (!b.classList.contains('can')) { b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake'); return toast(d.open ? `Gave ${day} må først pakkes ud ${day}. december` : 'Gaverne må pakkes ud fra 1. december'); }
+    try { await api('/api/jul/open', { day }); b.classList.add('unwrap'); await sleep(900); if (g === gen) Views.jul(g, []); }
+    catch (e) { toast(e.message); }
+  });
+};
+
+// sne, der daler stille ned over julesiden (stopper af sig selv, når siden skiftes)
+function snow(cv) {
+  if (!cv || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const ctx = cv.getContext('2d'), dpr = Math.min(2, devicePixelRatio || 1);
+  let w, h, flakes;
+  const size = () => { w = cv.clientWidth; h = cv.clientHeight; cv.width = w * dpr; cv.height = h * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); };
+  size();
+  flakes = Array.from({ length: Math.round(Math.min(160, w * h / 9000)) }, () => ({ x: Math.random() * w, y: Math.random() * h, r: .8 + Math.random() * 2.6, s: .3 + Math.random() * .9, p: Math.random() * 6.28 }));
+  addEventListener('resize', size);
+  const tick = () => {
+    if (!cv.isConnected) return removeEventListener('resize', size);
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(255,255,255,.85)';
+    for (const f of flakes) {
+      f.y += f.s; f.p += .01; f.x += Math.sin(f.p) * .35;
+      if (f.y > h + 4) { f.y = -4; f.x = Math.random() * w; }
+      ctx.globalAlpha = .35 + f.r / 5; ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, 6.28); ctx.fill();
+    }
+    requestAnimationFrame(tick);
+  };
+  tick();
 }
 
 Views.title = async (g, [kind, id]) => {

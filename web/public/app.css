@@ -312,3 +312,57 @@ google-cast-launcher.pill { width: 46px; height: 38px; padding: 9px 12px; --conn
 .gp.rem { box-shadow: inset 0 0 0 1px var(--amber); }
 .gnone { color: var(--t3); font-size: 13px; padding: 22px 14px; }
 @media (max-width: 760px) { .gcorner, .gch { flex-basis: 120px; } .gch span { display: none; } .gnowline { margin-left: -90px; } }
+
+/* ---- julekalender ---- */
+.jul { --jg: #f3c76a; position: relative; margin: 0 auto; max-width: 1180px; isolation: isolate; }
+.jul .snow { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 30; }
+.jul .lights { display: flex; justify-content: space-between; margin: 0 4px -6px; height: 22px; position: relative; }
+.jul .lights::before { content: ""; position: absolute; left: 0; right: 0; top: 2px; height: 12px; border-bottom: 2px solid rgba(255,255,255,.18); border-radius: 0 0 50% 50%; }
+.jul .lights i { width: 10px; height: 14px; border-radius: 50% 50% 45% 45%; margin-top: 8px; background: var(--c); box-shadow: 0 0 10px 2px var(--c); animation: twinkle 1.6s ease-in-out infinite; }
+.jul .lights i:nth-child(4n+1) { --c: #ff5d5d; } .jul .lights i:nth-child(4n+2) { --c: #f3c76a; animation-delay: .4s; }
+.jul .lights i:nth-child(4n+3) { --c: #5dd39e; animation-delay: .8s; } .jul .lights i:nth-child(4n) { --c: #6fb7ff; animation-delay: 1.2s; }
+@keyframes twinkle { 50% { opacity: .35; box-shadow: 0 0 2px 0 var(--c); } }
+.jul-head { text-align: center; padding: 18px 0 6px; }
+.jul-head h1 { font-size: clamp(30px, 5.5vw, 52px); margin: 6px 0 4px; letter-spacing: -.02em; color: #fff; text-shadow: 0 2px 18px rgba(243,199,106,.35); }
+.jul-head h1::before, .jul-head h1::after { content: "❄"; color: rgba(255,255,255,.55); font-size: .55em; vertical-align: middle; margin: 0 .5em; }
+.jul-head p { color: var(--t2); margin: 0 0 22px; }
+.doors { display: grid; grid-template-columns: repeat(6, 1fr); gap: 18px; padding: 22px; border-radius: 26px;
+  background: radial-gradient(circle at 50% 120%, rgba(243,199,106,.18), transparent 60%), radial-gradient(rgba(255,255,255,.08) 1.5px, transparent 2px) 0 0 / 34px 34px, linear-gradient(170deg, #123524, #0b2418); box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); }
+@media (max-width: 760px) { .doors { grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 12px; } }
+@media (max-width: 420px) { .doors { grid-template-columns: repeat(3, 1fr); } }
+.door { position: relative; aspect-ratio: 2/3; border-radius: 12px; overflow: visible; display: grid; place-items: center; text-align: center; transition: transform .2s, filter .2s; }
+/* gaven: indpakningspapir med striber, gavebånd på kryds, sløjfe og et lille mærkat med datoen */
+.door.gift { --paper: #b3262f; --ribbon: #f3c76a; margin-top: 14px; aspect-ratio: 2/2.7;
+  background: repeating-linear-gradient(45deg, rgba(255,255,255,.09) 0 8px, transparent 8px 22px), radial-gradient(rgba(255,255,255,.18) 2px, transparent 2.5px) 0 0 / 18px 18px, var(--paper);
+  box-shadow: inset 0 -10px 18px rgba(0,0,0,.25), 0 8px 18px rgba(0,0,0,.4); }
+.door.gift::before, .door.gift::after { content: ""; position: absolute; background: var(--ribbon); box-shadow: 0 0 0 1px rgba(0,0,0,.12); transition: transform .5s, opacity .5s; }
+.door.gift::before { left: 50%; top: 0; bottom: 0; width: 14%; transform: translateX(-50%); }
+.door.gift::after { top: 28%; left: 0; right: 0; height: 9%; }
+.door.gift .lid { position: absolute; left: -5%; right: -5%; top: -6%; height: 26%; border-radius: 8px; background: inherit; background-color: var(--paper); filter: brightness(1.08);
+  box-shadow: 0 4px 8px rgba(0,0,0,.35); transition: transform .6s cubic-bezier(.3,1.4,.5,1), opacity .6s; }
+.door.gift .lid::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 13%; transform: translateX(-50%); background: var(--ribbon); }
+.door.gift .bow { position: absolute; top: -20%; left: 50%; width: 46%; height: 22%; transform: translateX(-50%); transition: transform .6s, opacity .5s; z-index: 2; }
+.door.gift .bow::before, .door.gift .bow::after { content: ""; position: absolute; top: 10%; width: 50%; height: 80%; border: 5px solid var(--ribbon); border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%; }
+.door.gift .bow::before { left: 0; transform: rotate(-25deg); } .door.gift .bow::after { right: 0; transform: rotate(25deg); }
+.door.gift .tag { position: relative; z-index: 3; margin-top: 18%; min-width: 46%; padding: 6px 8px; border-radius: 8px; background: #f6f1e7; color: #8e1b24;
+  font-size: clamp(20px, 3.4vw, 34px); font-weight: 800; box-shadow: 0 3px 8px rgba(0,0,0,.35); transform: rotate(-4deg); }
+.door.gift .hint { position: absolute; bottom: 8px; left: 0; right: 0; z-index: 3; font-size: 12px; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
+.door[aria-disabled] { filter: saturate(.5) brightness(.7); cursor: default; }
+.door.can:hover { transform: translateY(-4px) rotate(-1.5deg); }
+.door.today { animation: wiggle 2.8s ease-in-out infinite; filter: drop-shadow(0 0 14px rgba(243,199,106,.55)); }
+@keyframes wiggle { 0%, 80%, 100% { transform: none; } 84% { transform: rotate(-3deg); } 88% { transform: rotate(3deg); } 92% { transform: rotate(-2deg); } 96% { transform: rotate(1deg); } }
+.door.shake { animation: shake .4s; }
+@keyframes shake { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+/* pakkes ud: sløjfen og låget flyver af, båndet glider væk, papiret folder sig sammen */
+.door.unwrap .bow { transform: translate(-50%, -160%) rotate(40deg); opacity: 0; }
+.door.unwrap .lid { transform: translateY(-120%) rotate(-14deg); opacity: 0; }
+.door.unwrap::before { transform: translateX(-50%) scaleY(0); opacity: 0; }
+.door.unwrap::after { transform: scaleX(0); opacity: 0; }
+.door.unwrap { transition: transform .5s .45s, opacity .45s .45s; transform: scale(1.15); opacity: 0; }
+.door.open { background: #111; border-radius: 12px; overflow: hidden; box-shadow: inset 0 0 0 2px rgba(243,199,106,.5), 0 8px 18px rgba(0,0,0,.4); place-items: end stretch; animation: reveal .5s ease-out; }
+@keyframes reveal { from { transform: scale(.85); opacity: 0; } }
+.door.open img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.door.open .num { position: absolute; top: 6px; left: 8px; z-index: 1; min-width: 30px; padding: 2px 6px; border-radius: 7px; background: #f6f1e7; color: #8e1b24; font-weight: 800; font-size: 16px; }
+.door.open .lbl { position: relative; z-index: 1; padding: 30px 8px 8px; font-weight: 650; font-size: 13px; text-align: left; background: linear-gradient(transparent, rgba(0,0,0,.85)); }
+.door.open .lbl small { display: block; color: var(--t2); font-weight: 500; font-size: 11px; margin-top: 2px; }
+@media (prefers-reduced-motion: reduce) { .door.today, .jul .lights i { animation: none; } }

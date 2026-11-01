@@ -31,6 +31,8 @@
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout" />
         <activity android:name=".SearchActivity" android:exported="false" android:windowSoftInputMode="adjustNothing"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout" />
+        <activity android:name=".JulActivity" android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout" />
         <activity android:name=".SportActivity" android:exported="false"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout" />
         <activity android:name=".MatchActivity" android:exported="false"

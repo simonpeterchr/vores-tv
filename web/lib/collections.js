@@ -113,6 +113,37 @@ const LISTS = [
   },
 ];
 
+// Julekalenderen: én film bag hver låge (fra jeres gamle "Jul"-playliste i Plex + tre andre julefilm derfra)
+const JUL = [
+  ['m', 'The Polar Express', 2004],
+  ['m', 'Elf', 2003],
+  ['m', 'The Santa Clause', 1994],
+  ['m', 'Jingle All the Way', 1996],
+  ['s', 'Mr. Bean', 1990, 'Mr Bean', { show: 'Merry Christmas Mr. Bean', note: 'Afsnit 7 i Mr. Bean' }], // tv-specialen findes kun som afsnit
+  ['m', 'Home Alone', 1990],
+  ['m', 'The Holiday', 2006],
+  ['m', 'Gremlins', 1984],
+  ['m', 'How the Grinch Stole Christmas', 2000, 'Dr. Seuss\' How the Grinch Stole Christmas'],
+  ['m', 'Office Christmas Party', 2016],
+  ['m', 'Surviving Christmas', 2004],
+  ['m', 'Trading Places', 1983],
+  ['m', 'Harry Potter and the Philosopher\'s Stone', 2001, 'Harry Potter and the Sorcerer\'s Stone'],
+  ['m', 'The Night Before', 2015],
+  ['m', 'Daddy\'s Home 2', 2017],
+  ['m', 'Anna and the Apocalypse', 2018],
+  ['m', 'Fatman', 2020],
+  ['m', 'A Bad Moms Christmas', 2017],
+  ['m', 'The Grinch', 2018, 'Dr. Seuss\' The Grinch'],
+  ['m', 'Bad Santa', 2003],
+  ['m', 'Die Hard', 1988],
+  ['m', 'Home Alone 2: Lost in New York', 1992],
+  ['m', 'Love Actually', 2003],
+  ['m', 'National Lampoon\'s Christmas Vacation', 1989, 'Christmas Vacation'],
+];
+LISTS.push({ key: 'jul', name: 'Julekalender', hidden: true, items: JUL });
+// Lågernes placering på kalenderen (fast blanding, så tallene ikke står i rækkefølge)
+const DOOR_ORDER = [17, 5, 22, 11, 2, 19, 8, 14, 24, 1, 13, 20, 6, 9, 23, 3, 16, 10, 21, 4, 15, 12, 7, 18];
+
 // titler sammenlignes uden tegnsætning: "Star Wars: Episode IV – A New Hope" = "star wars episode iv a new hope"
 const key = s => C.norm(s).replace(/&/g, ' and ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 // katalogets navne har ofte "(2024) (US)" bagved eller "4K-ES-HDR - " foran
@@ -153,8 +184,8 @@ function create(P, DATA) {
   const tech = store.tech || (store.tech = {}); // id -> {b: bitrate, at}
 
   function candidates(src, cats, it) {
-    const [, title, year, ...alts] = it;
-    const names = new Set([title, ...alts].map(key));
+    const [, title, year, ...rest] = it;
+    const names = new Set([title, ...rest.filter(x => typeof x === 'string')].map(key));
     const out = [];
     for (const e of src) {
       if (!keys(e[1]).some(k => names.has(k))) continue;
@@ -165,7 +196,9 @@ function create(P, DATA) {
       if (!en) continue;
       out.push({ e, cat, en, t: tier(en), k4: is4k(cat), sur: surround(cat), exact: y === year });
     }
-    return out.sort(rank);
+    // findes udgaver med det rigtige år, droppes dem uden år (fx "The Grinch" kan være både 2000- og 2018-filmen)
+    const sure = out.some(c => c.exact) ? out.filter(c => c.exact || +c.e[4]) : out;
+    return sure.sort(rank);
   }
   // bedst først: mest engelsk, så surround-lyd, så 4K, så højeste bitrate
   const rank = (a, b) => b.t - a.t || b.sur - a.sur || b.k4 - a.k4 || (b.b || 0) - (a.b || 0) || b.en - a.en || b.exact - a.exact;
@@ -184,7 +217,7 @@ function create(P, DATA) {
         for (const it of L.items) {
           const movie = it[0] === 'm';
           const cs = candidates(movie ? P.search.movies : P.search.series, movie ? mcats : scats, it);
-          if (!cs.length) { items.push({ missing: true, name: it[1], year: it[2], kind: movie ? 'movie' : 'series' }); continue; }
+          if (!cs.length) { items.push({ missing: true, name: (it.find(x => x && typeof x === 'object') || {}).show || it[1], year: it[2], kind: movie ? 'movie' : 'series' }); continue; }
           let best = cs[0];
           if (movie) {
             // blandt de bedste udgaver (samme sprog-niveau) hentes bitrate, så den bedste kan vælges
@@ -213,7 +246,8 @@ function create(P, DATA) {
             }
           }
           const e = best.e;
-          items.push({ kind: movie ? 'movie' : 'series', id: e[0], name: it[1], year: it[2], img: e[2], ext: e[5], cat: best.cat, quality: best.k4 ? '4K' : 'HD', surround: best.sur, bitrate: best.b || 0, lang: best.en === 2.75 ? 'engelsk, danske undertekster' : best.en >= 2.5 ? 'engelsk' : best.en === 2 ? 'flere lydspor' : 'original m. undertekster', versions: cs.length });
+          const opt = it.find(x => x && typeof x === 'object') || {};
+          items.push({ kind: movie ? 'movie' : 'series', id: e[0], name: opt.show || it[1], note: opt.note, year: it[2], img: e[2], ext: e[5], cat: best.cat, quality: best.k4 ? '4K' : 'HD', surround: best.sur, bitrate: best.b || 0, lang: best.en === 2.75 ? 'engelsk, danske undertekster' : best.en >= 2.5 ? 'engelsk' : best.en === 2 ? 'flere lydspor' : 'original m. undertekster', versions: cs.length });
         }
         out.push({ key: L.key, name: L.name, note: L.note, items });
       }
@@ -224,10 +258,39 @@ function create(P, DATA) {
 
   function lists() {
     if (!store.lists || Date.now() - store.at > 24 * 3600e3) { P.buildIndex(); resolve(); }
-    return { building: busy && !store.lists, lists: store.lists || [] };
+    return { building: busy && !store.lists, lists: (store.lists || []).filter(l => l.key !== 'jul') };
   }
 
-  return { lists, resolve };
+  // ---- julekalender: lågen kan åbnes fra sin dato (1.–24. december; resten af julen kan alle åbnes) ----
+  function julNow() {
+    const d = new Date(), m = d.getMonth(), day = d.getDate();
+    const year = m === 0 ? d.getFullYear() - 1 : d.getFullYear(); // i januar hører kalenderen til sidste år
+    const open = m === 11 ? Math.min(24, day) : m === 0 && day <= 6 ? 24 : 0;
+    return { year, today: m === 11 ? day : 0, open };
+  }
+  function calendar(demo) {
+    lists(); // sørger for, at filmene er fundet
+    const { year, today, open } = julNow();
+    const st = P.state.jul && P.state.jul.year === year ? P.state.jul : { year, opened: [] };
+    const L = (store.lists || []).find(l => l.key === 'jul');
+    const doors = DOOR_ORDER.map(day => {
+      const opened = st.opened.includes(day) || !!demo;
+      const it = L && L.items[day - 1];
+      return { day, opened, canOpen: demo || day <= open, today: day === today, film: opened && it && !it.missing ? it : opened && it ? { missing: true, name: it.name, year: it.year } : null };
+    });
+    return { year, today, open, ready: !!L, doors };
+  }
+  function openDoor(day) {
+    const { year, open } = julNow();
+    day = +day;
+    if (!(day >= 1 && day <= 24)) return { error: 'Den låge findes ikke.' };
+    if (day > open) return { error: open ? 'Lågen må først åbnes ' + day + '. december.' : 'Kalenderen åbner 1. december.' };
+    if (!P.state.jul || P.state.jul.year !== year) P.state.jul = { year, opened: [] };
+    if (!P.state.jul.opened.includes(day)) { P.state.jul.opened.push(day); P.save(); }
+    return calendar().doors.find(d => d.day === day);
+  }
+
+  return { lists, resolve, calendar, openDoor };
 }
 
 module.exports = { create, LISTS, english, key, keys, surround };
