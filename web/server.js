@@ -12,6 +12,7 @@ const { Readable } = require('stream');
 const C = require('./lib/core');
 const X = require('./lib/provider');
 const SH = require('./lib/sports');
+const Coll = require('./lib/collections');
 const Users = require('./lib/users');
 const Ops = require('./lib/ops');
 
@@ -35,7 +36,8 @@ async function body(req) {
 }
 
 /** Alle sider og data for én bruger (eget login, egne favoritter). */
-function makeApi(P, S, U) {
+const acctOf = P => P.ok() ? crypto.createHash('sha256').update(P.cred().user).digest('hex').slice(0, 12) : null;
+function makeApi(P, S, U, Co) {
 // Kanal til browseren: aldrig login eller udbyderens adresser
 function chOut(ch, withEpg) {
   const k = P.catalog.cats.get(ch.cat);
@@ -121,6 +123,7 @@ const routes = {
   'GET /api/angles': (req, res, q) => { const fam = S.family(P.catalog.byId.get(+q.get('id'))); return { family: fam, angles: fam ? S.angles(fam).map(a => ({ label: a.label, sub: a.sub, section: a.section, ch: chOut(a.ch) })) : [] }; },
 
   // film og serier
+  'GET /api/vod/collections': () => ({ acct: acctOf(P), ...Co.lists() }),
   'GET /api/vod/groups': (req, res, q) => {
     const kind = q.get('kind'), m = P.vodCategories(kind), shown = P.vodShownGroups(kind);
     return { loading: !m.size, shown, groups: [...m.values()].map(k => ({ id: k.id, name: k.name, prefix: k.prefix, shown: shown.includes(k.id) })) };
@@ -201,7 +204,7 @@ const routes = {
     const max = Math.min(200, +q.get('max') || 0), only = q.get('only'); // tv-appen beder om sit eget antal og filter
     const want = k => !only || only === k || (only === 'live' && (k === 'channels' || k === 'programs'));
     return {
-      acct: P.ok() ? crypto.createHash('sha256').update(P.cred().user).digest('hex').slice(0, 12) : null, // så tv'et kan se, at det er samme IPTV-login
+      acct: acctOf(P), // så tv'et kan se, at det er samme IPTV-login
       ready: { movies: !!P.search.movies, series: !!P.search.series },
       channels: want('channels') ? P.searchChannels(qq, max || 40) : [], programs: want('programs') ? P.searchPrograms(qq, max || 40) : [],
       movies: want('movies') ? P.searchVod(P.MOVIE, qq, max || 60) : [], series: want('series') ? P.searchVod(P.SERIES, qq, max || 60) : [],
@@ -352,12 +355,12 @@ function ctxFor(u) {
   if (!c) {
     const P = X.create(Users.dir(u.name));
     const S = Object.assign({}, SH, SH.forUser(P));
-    c = { P, S };
+    c = { P, S, Co: Coll.create(P, Users.dir(u.name)) };
     ctxs.set(u.name, c);
     P.loadCatalog(false);
   }
   c.U = { name: u.name, admin: !!u.admin, remote: u.remote, hasPassword: !!u.hash };
-  c.routes = makeApi(c.P, c.S, c.U);
+  c.routes = makeApi(c.P, c.S, c.U, c.Co);
   return c;
 }
 function refreshAll() {

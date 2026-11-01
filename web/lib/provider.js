@@ -393,6 +393,14 @@ function vodToggleGroup(kind, id) {
 function parseDur(s) { const p = String(s || '').split(':'); return p.length === 3 ? (+p[0]) * 3600 + (+p[1]) * 60 + (+p[2]) || 0 : 0; }
 const first = (o, ...keys) => { for (const k of keys) { const v = o && o[k]; if (v != null && v !== '' && v !== 'null') return String(v).trim(); } return ''; };
 
+/** Teknik for en film (opløsning, bitrate, lydsprog) – til at vælge den bedste udgave i samlinger. */
+async function vodTech(id) {
+  const o = await json(api('get_vod_info', '&vod_id=' + enc(id)), 30000);
+  const info = (o && o.info) || {}, v = info.video || {}, a = info.audio || {};
+  const tags = a.tags || {};
+  return { id: String(id), bitrate: +info.bitrate || 0, width: +v.width || 0, height: +v.height || 0, codec: v.codec_name || '', lang: String(tags.language || tags.LANGUAGE || '').toLowerCase(), raw: process.env.VT_RAW ? info : undefined };
+}
+
 async function vodInfo(kind, id) {
   const key = kind + '|' + id;
   const hit = vod.info.get(key);
@@ -616,7 +624,7 @@ return {
   DATA, state, save, ok, login, logout, health, healthCheck, account, vodName, 
   catalog, loadCatalog, inCategory, separator, shownGroups, toggleGroup, favorites, toggleFav, moveFav, seen, prefixes,
   epgGet, epgWant, epgPending, MOVIE, SERIES, vod, vodCategories, vodInCategory, vodShownGroups, vodToggleGroup, vodInfo,
-  saveResume, continueList, sync, search, buildIndex, evOf, searchChannels, searchPrograms, searchVod, warmEpg, epgChannels,
+  vodTech, saveResume, continueList, sync, search, buildIndex, evOf, searchChannels, searchPrograms, searchVod, warmEpg, epgChannels,
   liveUrl, vodUrl, json, text, cred: () => cred, UA, friendly, parseCred, parseAlts,
 };
 }

@@ -714,8 +714,10 @@ Views.vod = async (g, args, tab) => {
   if (g !== gen) return;
   view.innerHTML = `<div class="pills"><a class="pill" href="#/indstillinger/${kind === 'movie' ? 'film' : 'serier'}">Vælg grupper</a><a class="pill" href="#/sog">Søg i alle ${kind === 'movie' ? 'film' : 'serier'}</a></div>` +
     (cont.length ? `<h2>Fortsæt</h2><div class="row">${cont.map(r => posterCard(r, kind)).join('')}</div>` : '') +
+    (kind === 'movie' ? '<div id="colls"></div>' : '') +
     shown.map(k => `<h2>${esc(k.name)}</h2><div class="row" data-cat="${esc(k.id)}"><div class="spinner" style="margin:40px"></div></div>`).join('') +
     (shown.length ? '' : '<div class="empty">Ingen grupper valgt.</div>');
+  if (kind === 'movie') drawCollections(g);
   // hent rækkerne efterhånden (de øverste først)
   const rows = $$('[data-cat]');
   await Promise.all([0, 1, 2].map(async w => {
@@ -729,6 +731,29 @@ Views.vod = async (g, args, tab) => {
     }
   }));
 };
+
+// Samlinger: Marvel og Star Wars i historiens rækkefølge (film + serier) og Harry Potter – bedste engelske udgave af hver
+async function drawCollections(g) {
+  for (let t = 0; t < 40 && g === gen; t++) {
+    const d = await api('/api/vod/collections');
+    const el = $('#colls'); if (!el || g !== gen) return;
+    if (d.lists.length) {
+      el.innerHTML = d.lists.map(L => {
+        const have = L.items.filter(x => !x.missing);
+        let n = 0;
+        return `<h2>${esc(L.name)} <small>${have.length} titler${have.length < L.items.length ? ' · ' + (L.items.length - have.length) + ' findes ikke hos udbyderen' : ''}</small></h2><div class="row">${L.items.map(x => {
+          n++;
+          if (x.missing) return '';
+          const tags = [x.kind === 'series' ? 'Serie' : '', x.quality === '4K' ? '4K' : '', x.surround ? '5.1' : '', x.lang === 'engelsk, danske undertekster' ? 'DK-tekst' : x.lang !== 'engelsk' ? 'm. undertekster' : ''].filter(Boolean).join(' · ');
+          return posterCard({ kind: x.kind, id: x.id, name: n + '. ' + x.name, img: x.img, sub: x.year + (tags ? ' · ' + tags : '') }, x.kind);
+        }).join('')}</div>`;
+      }).join('');
+      return;
+    }
+    el.innerHTML = '<h2>Marvel, Star Wars og Harry Potter</h2><div class="empty">Finder de bedste udgaver … (første gang tager det et par minutter)</div>';
+    await sleep(8000);
+  }
+}
 
 Views.title = async (g, [kind, id]) => {
   const d = await api('/api/vod/info?kind=' + kind + '&id=' + encodeURIComponent(id));

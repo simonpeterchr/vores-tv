@@ -354,6 +354,8 @@ final class Search {
         return myAcct;
     }
 
+    static boolean acctOk(Context c, String a) { return !acct(c).isEmpty() && acct(c).equals(a); }
+
     /** Er serveren klar til at søge for dette tv (samme IPTV-login)? Kaldes uden for UI-tråden. */
     static boolean serverReady(Context c) { return Sync.webServer(c) != null; }
 
@@ -372,7 +374,7 @@ final class Search {
                 while ((n = r.read(buf)) > 0) sb.append(buf, 0, n);
             } finally { con.disconnect(); }
             org.json.JSONObject o = new org.json.JSONObject(sb.toString());
-            if (!acct(c).equals(o.optString("acct"))) return null; // andet login end tv'ets: id'erne passer ikke
+            if (!acctOk(c, o.optString("acct"))) return null; // andet login end tv'ets: id'erne passer ikke
             Remote out = new Remote();
             hits(o.optJSONArray("programs"), out.programs);
             hits(o.optJSONArray("channels"), out.channels);
