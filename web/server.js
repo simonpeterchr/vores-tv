@@ -358,7 +358,7 @@ function ctxFor(u) {
   if (!c) {
     const P = X.create(Users.dir(u.name));
     const S = Object.assign({}, SH, SH.forUser(P));
-    c = { P, S, Co: Coll.create(P, Users.dir(u.name), { canProbe: () => !Ops.activeViewers().some(v => v.user === u.name) }) };
+    c = { P, S, Co: Coll.create(P, Users.dir(u.name), { canProbe: () => process.uptime() > 180 && !Ops.activeViewers().some(v => v.user === u.name) }) };
     ctxs.set(u.name, c);
     P.loadCatalog(false);
   }
@@ -415,6 +415,8 @@ async function checkAlarms() {
   }
 }
 setInterval(checkAlarms, 60e3).unref();
+// samlingerne bygges også færdige, når ingen kigger (fx sprogtjek, der ventede på en ledig forbindelse)
+setInterval(() => { for (const c of ctxs.values()) try { c.Co.lists(); } catch { } }, 10 * 60e3).unref();
 
 // ---- natlig oprydning af tv'ernes cache kl. ca. 04.15 (login og indstillinger i apps røres ikke) ----
 let cleanDay = null;

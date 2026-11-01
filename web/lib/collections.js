@@ -114,7 +114,8 @@ function create(P, DATA, opts = {}) {
       if (!/NORDIC|BARN|BØRN|KIDS|SC/i.test(c.cat + ' ' + c.e[1]) || !/^mkv$/i.test(c.e[5] || '')) continue;
       const t = tech[c.e[0]] || (tech[c.e[0]] = { b: 0, at: 0 });
       if (!t.l || Date.now() - t.la > 90 * 86400e3) {
-        if (probes >= 4 || !canProbe()) continue; // højst 4 tjek pr. titel, og aldrig mens nogen ser noget
+        if (probes >= 4) continue; // højst 4 tjek pr. titel
+        if (!canProbe()) { store.probePending = Date.now(); continue; } // nogen ser noget: prøv igen senere
         probes++;
         const l = await P.audioLangs(c.e[0], c.e[5]);
         await new Promise(r => setTimeout(r, 1500));
@@ -222,7 +223,9 @@ function create(P, DATA, opts = {}) {
 
   /** all = også sæsontemaer uden for deres periode (til test). */
   function lists(all) {
-    if (!store.lists || Date.now() - store.at > 24 * 3600e3 || (store.lists && store.lists.length < LISTS.length && !busy)) { P.buildIndex(); resolve(); }
+    const retry = store.probePending && Date.now() - store.probePending > 20 * 60e3 && canProbe(); // sprogtjek, der blev sprunget over, mens nogen så noget
+    if (retry) store.probePending = 0;
+    if (!store.lists || Date.now() - store.at > 24 * 3600e3 || retry || (store.lists && store.lists.length < LISTS.length && !busy)) { P.buildIndex(); resolve(); }
     const now = new Date();
     const def = new Map(LISTS.map(l => [l.key, l]));
     const ls = (store.lists || []).filter(l => l.key !== 'jul' && def.has(l.key) && (!l.season || all || def.get(l.key).when(now)))
