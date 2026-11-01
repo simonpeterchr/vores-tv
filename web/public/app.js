@@ -45,7 +45,7 @@ const bar = p => `<div class="bar"><i style="width:${Math.round(p * 100)}%"></i>
 
 // ---- navigation ----
 const TABS = [['sog', 'Søg'], ['hjem', 'Hjem'], ['live', 'Live-TV'], ['sport', 'Sport'], ['film', 'Film'], ['serier', 'Serier']];
-{ const d = new Date(); if (d.getMonth() >= 10 || (d.getMonth() === 0 && d.getDate() <= 6)) TABS.push(['jul', 'Jul']); } // julekalender fra november til helligtrekonger
+TABS.push(['univers', 'Univers']); // universer, sæsontemaer og julekalenderne
 $('#nav').innerHTML = TABS.map(([k, n]) => `<a href="#/${k}" data-t="${k}">${n}</a>`).join('');
 setInterval(() => { $('#clock').textContent = hm(Date.now()); }, 5000);
 // lille indikator i toppen: forbindelser i brug hos udbyderen (klik = statussiden)
@@ -87,13 +87,13 @@ async function route() {
   const g = ++gen;
   const [tab, ...rest] = location.hash.replace(/^#\/?/, '').split('/');
   const t = tab || 'hjem';
-  $$('#nav a').forEach(a => a.classList.toggle('on', a.dataset.t === t || (t === 'kamp' && a.dataset.t === 'sport') || (t === 'titel' && a.dataset.t === (rest[0] === 'series' ? 'serier' : 'film')) || (t === 'guide' && a.dataset.t === 'live')));
+  $$('#nav a').forEach(a => a.classList.toggle('on', a.dataset.t === t || (t === 'kamp' && a.dataset.t === 'sport') || (t === 'titel' && a.dataset.t === (rest[0] === 'series' ? 'serier' : 'film')) || (t === 'guide' && a.dataset.t === 'live') || (t === 'jul' && a.dataset.t === 'univers')));
   if (t !== 'live' && Player.mode === 'mini') Player.close();
   try { [status, me] = await Promise.all([api('/api/status'), api('/api/me')]); } catch { return; }
   if (g !== gen) return;
   if (!status.loggedIn && t !== 'indstillinger') return Views.login(g);
   window.scrollTo(0, 0);
-  const fn = { sog: Views.search, hjem: Views.home, live: Views.live, sport: Views.sport, kamp: Views.match, film: Views.vod, serier: Views.vod, titel: Views.title, indstillinger: Views.settings, status: Views.status, guide: Views.guide, jul: Views.jul }[t] || Views.home;
+  const fn = { sog: Views.search, hjem: Views.home, live: Views.live, sport: Views.sport, kamp: Views.match, film: Views.vod, serier: Views.vod, titel: Views.title, indstillinger: Views.settings, status: Views.status, guide: Views.guide, jul: Views.jul, univers: Views.univers }[t] || Views.home;
   view.innerHTML = '<div class="spinner"></div>';
   try { await fn(g, rest.map(decodeURIComponent), t); }
   catch (e) { if (g === gen) view.innerHTML = `<div class="alert">${esc(e.message)}</div>`; }
@@ -715,10 +715,8 @@ Views.vod = async (g, args, tab) => {
   if (g !== gen) return;
   view.innerHTML = `<div class="pills"><a class="pill" href="#/indstillinger/${kind === 'movie' ? 'film' : 'serier'}">Vælg grupper</a><a class="pill" href="#/sog">Søg i alle ${kind === 'movie' ? 'film' : 'serier'}</a></div>` +
     (cont.length ? `<h2>Fortsæt</h2><div class="row">${cont.map(r => posterCard(r, kind)).join('')}</div>` : '') +
-    (kind === 'movie' ? '<div id="colls"></div>' : '') +
     shown.map(k => `<h2>${esc(k.name)}</h2><div class="row" data-cat="${esc(k.id)}"><div class="spinner" style="margin:40px"></div></div>`).join('') +
     (shown.length ? '' : '<div class="empty">Ingen grupper valgt.</div>');
-  if (kind === 'movie') drawCollections(g);
   // hent rækkerne efterhånden (de øverste først)
   const rows = $$('[data-cat]');
   await Promise.all([0, 1, 2].map(async w => {
@@ -733,54 +731,66 @@ Views.vod = async (g, args, tab) => {
   }));
 };
 
-// Samlinger: Marvel og Star Wars i historiens rækkefølge (film + serier) og Harry Potter – bedste engelske udgave af hver
-async function drawCollections(g) {
-  for (let t = 0; t < 40 && g === gen; t++) {
-    const d = await api('/api/vod/collections');
-    const el = $('#colls'); if (!el || g !== gen) return;
-    if (d.lists.length) {
-      el.innerHTML = d.lists.map(L => {
-        const have = L.items.filter(x => !x.missing);
-        let n = 0;
-        return `<h2>${esc(L.name)} <small>${have.length} titler${have.length < L.items.length ? ' · ' + (L.items.length - have.length) + ' findes ikke hos udbyderen' : ''}</small></h2><div class="row">${L.items.map(x => {
-          n++;
-          if (x.missing) return '';
-          const tags = [x.kind === 'series' ? 'Serie' : '', x.quality === '4K' ? '4K' : '', x.surround ? '5.1' : '', x.lang === 'engelsk, danske undertekster' ? 'DK-tekst' : x.lang !== 'engelsk' ? 'm. undertekster' : ''].filter(Boolean).join(' · ');
-          return posterCard({ kind: x.kind, id: x.id, name: n + '. ' + x.name, img: x.img, sub: x.year + (tags ? ' · ' + tags : '') }, x.kind);
-        }).join('')}</div>`;
-      }).join('');
+// ---- Univers: sæsontemaer øverst (julekalenderne, Halloween …) og universer i rækkefølge ----
+const uniTags = x => [x.kind === 'series' ? 'Serie' : '', x.quality === '4K' ? '4K' : '', x.surround ? '5.1' : '', x.lang === 'engelsk, danske undertekster' ? 'DK-tekst' : x.lang && x.lang !== 'engelsk' ? 'm. undertekster' : ''].filter(Boolean).join(' · ');
+const uniCard = (href, name, sub, covers, cls = '') => `<a class="uni ${cls}" href="${href}"><div class="covers">${(covers || []).slice(0, 4).map(c => `<img src="${esc(c)}" alt="" loading="lazy" onerror="this.remove()">`).join('')}</div><div class="t"><b>${esc(name)}</b><small>${esc(sub)}</small></div></a>`;
+Views.univers = async (g, [key]) => {
+  for (let t = 0; t < 60 && g === gen; t++) {
+    const d = await api('/api/vod/collections' + (key === 'alle' ? '?all=1' : ''));
+    if (g !== gen) return;
+    if (key && key !== 'alle') {
+      const L = d.lists.find(l => l.key === key);
+      if (!L) { if (d.building) { view.innerHTML = '<div class="empty">Finder titlerne …</div>'; await sleep(5000); continue; } view.innerHTML = '<div class="empty">Det univers findes ikke (eller er ikke i sæson).</div>'; return; }
+      const have = L.items.filter(x => !x.missing), miss = L.items.length - have.length;
+      let n = 0;
+      view.innerHTML = `<div class="pills"><a class="pill" href="#/univers">← Univers</a></div><h1 class="uni-h">${esc(L.name)}</h1>
+        <p class="muted">${esc(L.order === 'historien' ? 'I den rækkefølge, historien foregår.' : L.order === 'udgivelserne' ? 'I den rækkefølge, de kom ud.' : L.order === 'nyeste først' ? 'Nyeste først.' : '')} ${esc(L.note || '')}${miss ? ' · ' + miss + ' findes ikke hos udbyderen' : ''}</p>
+        <div class="grid uni-grid">${L.items.map(x => { n++; return x.missing ? '' : posterCard({ kind: x.kind, id: x.id, name: n + '. ' + (x.name), img: x.img, sub: (x.note || x.year) + (uniTags(x) ? ' · ' + uniTags(x) : '') }, x.kind); }).join('')}</div>`;
       return;
     }
-    el.innerHTML = '<h2>Marvel, Star Wars og Harry Potter</h2><div class="empty">Finder de bedste udgaver … (første gang tager det et par minutter)</div>';
-    await sleep(8000);
+    const by = {};
+    for (const L of d.lists.filter(l => !l.season)) (by[L.group] = by[L.group] || []).push(L);
+    const seasons = d.lists.filter(l => l.season);
+    const count = L => L.items.filter(x => !x.missing).length + ' titler';
+    view.innerHTML = `${d.jul || seasons.length ? `<h2>Lige nu</h2><div class="uni-row">${d.jul ? uniCard('#/jul', 'Julekalender', '24 julefilm pakket ind – én om dagen', [], 'xmas') + uniCard('#/jul/born', 'Børnenes julekalender', 'Ludvig & Julemanden – dagens afsnit på dansk', [], 'xmas kids') : ''}${seasons.map(L => uniCard('#/univers/' + L.key, L.name, count(L), L.covers, 'season')).join('')}</div>` : ''}
+      ${(d.groups || []).filter(gn => by[gn]).map(gn => `<h2>${esc(gn)}</h2><div class="uni-row">${by[gn].map(L => uniCard('#/univers/' + L.key, L.name, count(L) + (L.order === 'historien' ? ' · i historiens rækkefølge' : ''), L.covers)).join('')}</div>`).join('')}
+      ${d.building ? '<p class="muted" style="margin-top:20px">Finder flere universer og de bedste udgaver … (første gang tager det et stykke tid)</p>' : ''}`;
+    if (!d.building) return;
+    await sleep(15000);
   }
-}
+};
 
 // ---- Julekalender: én julefilm pakket ind bag hver dato; gaven kan pakkes ud fra sin dag ----
 const PAPER = ['#b3262f', '#1f6f4a', '#c8a14a', '#2a4f8f', '#8e1b24', '#3f7d3a', '#a33a6b', '#245e73'];
 const RIBBON = ['#f3c76a', '#f6f1e7', '#b3262f', '#f3c76a', '#f6f1e7', '#f3c76a', '#f6f1e7', '#f3c76a'];
-Views.jul = async (g, [mode]) => {
-  const demo = mode === 'demo'; // #/jul/demo viser alle gaver pakket ud (gemmes ikke)
-  const d = await api('/api/jul' + (demo ? '?demo=1' : ''));
+Views.jul = async (g, args) => {
+  const born = args.includes('born'), demo = args.includes('demo'); // #/jul/born = børnenes; …/demo viser alle gaver pakket ud (gemmes ikke)
+  const d = await api('/api/jul?cal=' + (born ? 'born' : 'film') + (demo ? '&demo=1' : ''));
   if (g !== gen) return;
   const days = Math.ceil((new Date(d.year, 11, 1) - Date.now()) / 864e5);
   const head = d.open ? (d.today ? `${d.today}. december – ${d.doors.find(x => x.day === d.today).opened ? 'dagens gave er pakket ud 🎄' : 'dagens gave venter under træet 🎁'}` : 'Alle gaver kan pakkes ud resten af julen')
     : `Gaverne må pakkes ud fra 1. december${days > 0 ? ' – om ' + days + (days === 1 ? ' dag' : ' dage') : ''}`;
   view.innerHTML = `<section class="jul"><canvas class="snow"></canvas><div class="lights">${'<i></i>'.repeat(26)}</div>
-    <div class="jul-head"><h1>Julekalender ${d.year}</h1><p>${esc(head)}${d.ready ? '' : ' · finder filmene …'}</p></div>
-    <div class="doors">${d.doors.map(x => {
+    <div class="jul-head"><h1>${esc(d.name)} ${d.year}</h1><p>${esc(head)}${d.ready ? '' : ' · finder ' + (born ? 'afsnittene' : 'filmene') + ' …'}</p>
+      <div class="pills jul-switch"><a class="pill${born ? '' : ' on'}" href="#/jul">🎬 Julefilm</a><a class="pill${born ? ' on' : ''}" href="#/jul/born">🧸 Børnenes</a></div></div>
+    <div class="doors${born ? ' kids' : ''}">${d.doors.map(x => {
       const f = x.film, i = x.day % PAPER.length;
       if (x.opened) return `<button class="door open" data-day="${x.day}" ${f && !f.missing ? `data-id="${esc(f.id)}" data-kind="${esc(f.kind)}"` : ''}>${f && f.img ? `<img src="${esc(f.img)}" alt="" loading="lazy">` : ''}<span class="num">${x.day}</span>
-        <span class="lbl">${f ? esc(f.name) : 'Hentes …'}${f && !f.missing ? `<small>${[f.note || f.year, f.quality, f.surround ? '5.1' : '', f.lang && f.lang.startsWith('engelsk, danske') ? 'DK-tekst' : ''].filter(Boolean).join(' · ')}</small>` : f && f.missing ? '<small>findes ikke hos udbyderen</small>' : ''}</span></button>`;
+        <span class="lbl">${f ? esc(f.name) : 'Hentes …'}${f && !f.missing ? `<small>${f.kind === 'episode' ? esc(f.show) + ' · ' + Math.round((f.durMs || 0) / 60000) + ' min · dansk tale' : [f.note || f.year, f.quality, f.surround ? '5.1' : '', f.lang && f.lang.startsWith('engelsk, danske') ? 'DK-tekst' : ''].filter(Boolean).join(' · ')}</small>` : f && f.missing ? '<small>findes ikke hos udbyderen</small>' : ''}</span></button>`;
       return `<button class="door gift${x.canOpen ? ' can' : ''}${x.today ? ' today' : ''}" data-day="${x.day}" style="--paper:${PAPER[i]};--ribbon:${RIBBON[i]}" ${x.canOpen ? '' : 'aria-disabled="true"'} aria-label="Gave ${x.day}">
         <span class="lid"></span><span class="bow"></span><span class="tag">${x.day}</span>${x.canOpen ? `<span class="hint">${x.today ? 'Pak ud i dag' : 'Pak ud'}</span>` : ''}</button>`;
     }).join('')}</div></section>`;
   snow($('.jul .snow'));
   $$('.door').forEach(b => b.onclick = async () => {
     const day = +b.dataset.day;
-    if (b.classList.contains('open')) { if (b.dataset.id) location.hash = '#/titel/' + (b.dataset.kind || 'movie') + '/' + encodeURIComponent(b.dataset.id); return; }
+    if (b.classList.contains('open')) {
+      const f = (d.doors.find(x => x.day === day) || {}).film;
+      if (f && f.kind === 'episode') return Player.open({ type: 'vod', kind: 'series', id: f.id, ext: f.ext, title: f.show, sub: f.name, poster: f.poster, seriesId: f.seriesId, start: 0 }); // børnene: afspil med det samme
+      if (b.dataset.id) location.hash = '#/titel/' + (b.dataset.kind || 'movie') + '/' + encodeURIComponent(b.dataset.id);
+      return;
+    }
     if (!b.classList.contains('can')) { b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake'); return toast(d.open ? `Gave ${day} må først pakkes ud ${day}. december` : 'Gaverne må pakkes ud fra 1. december'); }
-    try { await api('/api/jul/open', { day }); b.classList.add('unwrap'); await sleep(900); if (g === gen) Views.jul(g, []); }
+    try { await api('/api/jul/open', { day, cal: born ? 'born' : 'film' }); b.classList.add('unwrap'); await sleep(900); if (g === gen) Views.jul(g, born ? ['born'] : []); }
     catch (e) { toast(e.message); }
   });
 };

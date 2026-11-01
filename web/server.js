@@ -123,9 +123,9 @@ const routes = {
   'GET /api/angles': (req, res, q) => { const fam = S.family(P.catalog.byId.get(+q.get('id'))); return { family: fam, angles: fam ? S.angles(fam).map(a => ({ label: a.label, sub: a.sub, section: a.section, ch: chOut(a.ch) })) : [] }; },
 
   // film og serier
-  'GET /api/vod/collections': () => ({ acct: acctOf(P), ...Co.lists() }),
-  'GET /api/jul': (req, res, q) => ({ acct: acctOf(P), ...Co.calendar(q.get('demo') === '1') }),
-  'POST /api/jul/open': (req, res, q, b) => { const r = Co.openDoor(b.day); return r.error ? send(res, 400, r) : r; },
+  'GET /api/vod/collections': (req, res, q) => ({ acct: acctOf(P), ...Co.lists(q.get('all') === '1') }),
+  'GET /api/jul': async (req, res, q) => ({ acct: acctOf(P), ...await Co.calendar(q.get('cal'), q.get('demo') === '1') }),
+  'POST /api/jul/open': async (req, res, q, b) => { const r = await Co.openDoor(b.day, b.cal); return r.error ? send(res, 400, r) : r; },
   'GET /api/vod/groups': (req, res, q) => {
     const kind = q.get('kind'), m = P.vodCategories(kind), shown = P.vodShownGroups(kind);
     return { loading: !m.size, shown, groups: [...m.values()].map(k => ({ id: k.id, name: k.name, prefix: k.prefix, shown: shown.includes(k.id) })) };

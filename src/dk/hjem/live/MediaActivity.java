@@ -109,10 +109,7 @@ public class MediaActivity extends Activity {
         if (picker != null) return;
         List<String> groups = Vod.shownGroups(this, kind);
         List<Vod.Resume> cont = Vod.continueList(this, kind);
-        final boolean movies = Vod.MOVIE.equals(kind);
-        if (movies) Coll.load(this);
-        List<Coll.List1> colls = movies ? Coll.lists : new java.util.ArrayList<>();
-        StringBuilder st = new StringBuilder(Vod.categories(kind).size() + "|" + cont.size() + "|" + colls.size() + "|");
+        StringBuilder st = new StringBuilder(Vod.categories(kind).size() + "|" + cont.size() + "|");
         for (String g : groups) st.append(g).append(':').append(Vod.inCategory(this, kind, g).size()).append(',');
         for (Vod.Resume r : cont) st.append(r.key).append(r.pos / 60000);
         if (st.toString().equals(shown)) return;
@@ -134,20 +131,6 @@ public class MediaActivity extends Activity {
                 Poster.box(c).setOnClickListener(v -> resume(x));
                 add(r, c);
                 if (("r:" + x.key).equals(focusKey)) restore = Poster.box(c);
-            }
-        }
-        for (Coll.List1 L : colls) { // Marvel, Star Wars og Harry Potter i rækkefølge
-            LinearLayout r = row(L.name);
-            final String lname = L.name;
-            for (Coll.Item ci : L.items) {
-                final Coll.Item x = ci;
-                final String title = x.n + ". " + x.name;
-                LinearLayout c = Poster.card(this, px, px.p(PW), px.p(PH), x.img, title, x.sub, 0,
-                        () -> { focusKey = "c:" + lname + x.id; setHero(lname.toUpperCase(Fmt.DA), title, x.sub, "OK for detaljer"); Img.load(backdrop, x.img, px.p(600)); });
-                Poster.box(c).setOnClickListener(v -> startActivity(new Intent(this, DetailActivity.class).putExtra("kind", x.kind).putExtra("id", x.id)
-                        .putExtra("name", x.name).putExtra("poster", x.img).putExtra("ext", x.ext)));
-                add(r, c);
-                if (("c:" + lname + x.id).equals(focusKey)) restore = Poster.box(c);
             }
         }
         for (String g : groups) {

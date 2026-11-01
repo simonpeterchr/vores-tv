@@ -36,6 +36,7 @@ public class JulActivity extends Activity {
     private TextView sub;
     private final Handler h = new Handler(Looper.getMainLooper());
     private int focusDay;
+    private boolean born; // børnenes julekalender (dansk børnejulekalender, ét afsnit om dagen)
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -43,11 +44,12 @@ public class JulActivity extends Activity {
         root = new FrameLayout(this);
         root.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{0xFF123524, 0xFF0B2418, 0xFF0B0B0D}));
         setContentView(root);
-        top = Ui.topBar(this, px, Nav.TABS, Nav.JUL);
+        top = Ui.topBar(this, px, Nav.TABS, Nav.UNIVERS);
         root.addView(top.root, Ui.at(px.p(96), px.p(42), px.p(1728), -2));
-        Nav.wire(this, top, Nav.JUL, null);
+        Nav.wire(this, top, Nav.UNIVERS, null);
+        born = "born".equals(getIntent().getStringExtra("cal"));
         TextView t = px.t(54, 700, 0xFFFFFFFF);
-        t.setText("❄  Julekalender  ❄");
+        t.setText(born ? "❄  Børnenes julekalender  ❄" : "❄  Julekalender  ❄");
         root.addView(t, Ui.at(px.p(96), px.p(140), -2, -2));
         sub = px.t(22, 400, Theme.white(0.72f));
         sub.setText("Henter kalenderen …");
@@ -95,7 +97,7 @@ public class JulActivity extends Activity {
                 String ip = Sync.webServer(this);
                 if (ip == null) err = "Julekalenderen kræver Vores TV-serveren i huset.";
                 else {
-                    d = new JSONObject(get("http://" + ip + ":" + Web.PORT + "/api/jul"));
+                    d = new JSONObject(get("http://" + ip + ":" + Web.PORT + "/api/jul?cal=" + (born ? "born" : "film")));
                     if (!Search.acctOk(this, d.optString("acct"))) { d = null; err = "Serveren bruger et andet IPTV-login end dette tv."; }
                 }
             } catch (Exception e) { err = "Kunne ikke hente kalenderen."; }
@@ -110,7 +112,7 @@ public class JulActivity extends Activity {
             java.util.Calendar dec = java.util.Calendar.getInstance();
             dec.set(d.optInt("year"), java.util.Calendar.DECEMBER, 1, 0, 0, 0);
             long days = (long) Math.ceil((dec.getTimeInMillis() - System.currentTimeMillis()) / 86400000.0);
-            sub.setText("Gaverne må pakkes ud fra 1. december" + (days > 0 ? " – om " + days + (days == 1 ? " dag" : " dage") : "") + ".  I hver gave ligger en julefilm.");
+            sub.setText("Gaverne må pakkes ud fra 1. december" + (days > 0 ? " – om " + days + (days == 1 ? " dag" : " dage") : "") + ".  " + (born ? "I hver gave ligger dagens afsnit af Ludvig & Julemanden – på dansk." : "I hver gave ligger en julefilm."));
         } else sub.setText(today > 0 ? today + ". december  ·  vælg dagens gave og tryk OK for at pakke den ud 🎁" : "Alle gaver kan pakkes ud resten af julen");
         grid.removeAllViews();
         JSONArray doors = d.optJSONArray("doors");
@@ -202,6 +204,13 @@ public class JulActivity extends Activity {
         box.setOnClickListener(v -> {
             if (opened) {
                 if (film == null || film.optBoolean("missing")) return;
+                if ("episode".equals(film.optString("kind"))) { // børnene: afspil dagens afsnit med det samme
+                    startActivity(new Intent(this, VodPlayerActivity.class).putExtra("kind", Vod.SERIES).putExtra("seriesId", film.optString("seriesId"))
+                            .putExtra("ids", new String[]{film.optString("id")}).putExtra("titles", new String[]{film.optString("show")})
+                            .putExtra("subs", new String[]{film.optString("name")}).putExtra("exts", new String[]{film.optString("ext")})
+                            .putExtra("poster", film.optString("poster", null)).putExtra("resume", true));
+                    return;
+                }
                 startActivity(new Intent(this, DetailActivity.class).putExtra("kind", film.optString("kind")).putExtra("id", film.optString("id"))
                         .putExtra("name", film.optString("name")).putExtra("poster", film.optString("img", null)).putExtra("ext", film.optString("ext", null)));
                 return;
@@ -224,7 +233,7 @@ public class JulActivity extends Activity {
                 boolean ok;
                 try {
                     String ip = Sync.webServer(this);
-                    ok = ip != null && post("http://" + ip + ":" + Web.PORT + "/api/jul/open", "{\"day\":" + day + "}");
+                    ok = ip != null && post("http://" + ip + ":" + Web.PORT + "/api/jul/open", "{\"day\":" + day + ",\"cal\":\"" + (born ? "born" : "film") + "\"}");
                 } catch (Exception e) { ok = false; }
                 final boolean fok = ok;
                 h.postDelayed(() -> {

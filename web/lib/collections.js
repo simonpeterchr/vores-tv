@@ -1,117 +1,13 @@
 'use strict';
-// Samlinger under Film: Marvel og Star Wars i historiens rækkefølge (med tv-serierne på tidslinjen) og Harry Potter.
-// For hver titel vælges den bedste engelske udgave i kataloget: engelsk gruppe først, så 4K, så højeste bitrate.
+// Fanen "Univers": universer (Marvel, Star Wars …) og sæsontemaer i rækkefølge, plus julekalenderne.
+// For hver titel vælges den bedste engelske udgave i kataloget: engelsk først, så surround-lyd, så 4K, så højeste bitrate.
+// Børnenes julekalender er derimod på dansk (de mindste kan ikke læse undertekster).
 const fs = require('fs');
 const path = require('path');
 const C = require('./core');
 
-// [type, titel, år, alternative titler …]  –  m = film, s = serie
-const LISTS = [
-  {
-    key: 'marvel', name: 'Marvel – tidslinjen', note: 'Marvel-filmene og -serierne i den rækkefølge, historien foregår.',
-    items: [
-      ['m', 'Captain America: The First Avenger', 2011],
-      ['s', 'Marvel\'s Agent Carter', 2015, 'Agent Carter'],
-      ['m', 'Captain Marvel', 2019],
-      ['m', 'Iron Man', 2008],
-      ['m', 'Iron Man 2', 2010],
-      ['m', 'The Incredible Hulk', 2008],
-      ['m', 'Thor', 2011],
-      ['m', 'The Avengers', 2012, 'Marvel\'s The Avengers', 'Avengers Assemble'],
-      ['m', 'Thor: The Dark World', 2013],
-      ['m', 'Iron Man 3', 2013],
-      ['m', 'Captain America: The Winter Soldier', 2014],
-      ['m', 'Guardians of the Galaxy', 2014],
-      ['m', 'Guardians of the Galaxy Vol. 2', 2017, 'Guardians of the Galaxy Vol 2', 'Guardians of the Galaxy Volume 2'],
-      ['m', 'Avengers: Age of Ultron', 2015],
-      ['m', 'Ant-Man', 2015],
-      ['m', 'Captain America: Civil War', 2016],
-      ['m', 'Black Widow', 2021],
-      ['m', 'Black Panther', 2018],
-      ['m', 'Spider-Man: Homecoming', 2017],
-      ['m', 'Doctor Strange', 2016],
-      ['m', 'Thor: Ragnarok', 2017],
-      ['m', 'Ant-Man and the Wasp', 2018],
-      ['m', 'Avengers: Infinity War', 2018],
-      ['m', 'Avengers: Endgame', 2019],
-      ['s', 'Loki', 2021],
-      ['s', 'What If...?', 2021, 'What If'],
-      ['s', 'WandaVision', 2021],
-      ['s', 'The Falcon and the Winter Soldier', 2021],
-      ['m', 'Shang-Chi and the Legend of the Ten Rings', 2021],
-      ['m', 'Eternals', 2021],
-      ['m', 'Spider-Man: Far From Home', 2019],
-      ['m', 'Spider-Man: No Way Home', 2021],
-      ['m', 'Doctor Strange in the Multiverse of Madness', 2022],
-      ['s', 'Hawkeye', 2021],
-      ['s', 'Moon Knight', 2022],
-      ['m', 'Black Panther: Wakanda Forever', 2022],
-      ['s', 'Echo', 2024],
-      ['s', 'She-Hulk: Attorney at Law', 2022],
-      ['s', 'Ms. Marvel', 2022],
-      ['m', 'Thor: Love and Thunder', 2022],
-      ['m', 'Werewolf by Night', 2022],
-      ['m', 'The Guardians of the Galaxy Holiday Special', 2022],
-      ['m', 'Ant-Man and the Wasp: Quantumania', 2023],
-      ['m', 'Guardians of the Galaxy Vol. 3', 2023, 'Guardians of the Galaxy Vol 3', 'Guardians of the Galaxy Volume 3'],
-      ['s', 'Secret Invasion', 2023],
-      ['m', 'The Marvels', 2023],
-      ['m', 'Deadpool & Wolverine', 2024, 'Deadpool and Wolverine'],
-      ['s', 'Agatha All Along', 2024],
-      ['m', 'Captain America: Brave New World', 2025],
-      ['s', 'Daredevil: Born Again', 2025],
-      ['m', 'Thunderbolts*', 2025, 'Thunderbolts', 'The New Avengers'],
-      ['s', 'Ironheart', 2025],
-      ['m', 'The Fantastic Four: First Steps', 2025, 'Fantastic Four: First Steps', 'The Fantastic 4: First Steps'],
-      ['s', 'Wonder Man', 2026],
-      ['m', 'Spider-Man: Brand New Day', 2026],
-    ],
-  },
-  {
-    key: 'starwars', name: 'Star Wars – tidslinjen', note: 'Film og serier i den rækkefølge, historien foregår.',
-    items: [
-      ['s', 'Star Wars: The Acolyte', 2024, 'The Acolyte'],
-      ['s', 'Star Wars: Tales of the Jedi', 2022, 'Tales of the Jedi'],
-      ['m', 'Star Wars: Episode I - The Phantom Menace', 1999, 'Star Wars: The Phantom Menace', 'The Phantom Menace', 'Star Wars Episode I'],
-      ['m', 'Star Wars: Episode II - Attack of the Clones', 2002, 'Star Wars: Attack of the Clones', 'Attack of the Clones', 'Star Wars Episode II'],
-      ['m', 'Star Wars: The Clone Wars', 2008],
-      ['s', 'Star Wars: The Clone Wars', 2008, 'The Clone Wars'],
-      ['m', 'Star Wars: Episode III - Revenge of the Sith', 2005, 'Star Wars: Revenge of the Sith', 'Revenge of the Sith', 'Star Wars Episode III'],
-      ['s', 'Star Wars: Tales of the Empire', 2024, 'Tales of the Empire'],
-      ['s', 'Star Wars: The Bad Batch', 2021, 'The Bad Batch'],
-      ['m', 'Solo: A Star Wars Story', 2018, 'Solo'],
-      ['s', 'Obi-Wan Kenobi', 2022],
-      ['s', 'Andor', 2022, 'Star Wars: Andor'],
-      ['s', 'Star Wars Rebels', 2014, 'Star Wars: Rebels'],
-      ['m', 'Rogue One: A Star Wars Story', 2016, 'Rogue One'],
-      ['m', 'Star Wars: Episode IV - A New Hope', 1977, 'Star Wars', 'Star Wars: A New Hope', 'A New Hope', 'Star Wars Episode IV'],
-      ['m', 'Star Wars: Episode V - The Empire Strikes Back', 1980, 'The Empire Strikes Back', 'Star Wars: The Empire Strikes Back', 'Star Wars Episode V'],
-      ['m', 'Star Wars: Episode VI - Return of the Jedi', 1983, 'Return of the Jedi', 'Star Wars: Return of the Jedi', 'Star Wars Episode VI'],
-      ['s', 'The Mandalorian', 2019, 'Star Wars: The Mandalorian'],
-      ['s', 'The Book of Boba Fett', 2021, 'Star Wars: The Book of Boba Fett'],
-      ['m', 'The Mandalorian and Grogu', 2026, 'The Mandalorian & Grogu'],
-      ['s', 'Star Wars: Skeleton Crew', 2024, 'Skeleton Crew'],
-      ['s', 'Ahsoka', 2023, 'Star Wars: Ahsoka'],
-      ['s', 'Star Wars Resistance', 2018, 'Star Wars: Resistance'],
-      ['m', 'Star Wars: Episode VII - The Force Awakens', 2015, 'Star Wars: The Force Awakens', 'The Force Awakens', 'Star Wars Episode VII'],
-      ['m', 'Star Wars: Episode VIII - The Last Jedi', 2017, 'Star Wars: The Last Jedi', 'The Last Jedi', 'Star Wars Episode VIII'],
-      ['m', 'Star Wars: Episode IX - The Rise of Skywalker', 2019, 'Star Wars: The Rise of Skywalker', 'The Rise of Skywalker', 'Star Wars Episode IX'],
-    ],
-  },
-  {
-    key: 'potter', name: 'Harry Potter', note: 'Alle otte film i rækkefølge.',
-    items: [
-      ['m', 'Harry Potter and the Philosopher\'s Stone', 2001, 'Harry Potter and the Sorcerer\'s Stone'],
-      ['m', 'Harry Potter and the Chamber of Secrets', 2002],
-      ['m', 'Harry Potter and the Prisoner of Azkaban', 2004],
-      ['m', 'Harry Potter and the Goblet of Fire', 2005],
-      ['m', 'Harry Potter and the Order of the Phoenix', 2007],
-      ['m', 'Harry Potter and the Half-Blood Prince', 2009],
-      ['m', 'Harry Potter and the Deathly Hallows: Part 1', 2010, 'Harry Potter and the Deathly Hallows Part 1'],
-      ['m', 'Harry Potter and the Deathly Hallows: Part 2', 2011, 'Harry Potter and the Deathly Hallows Part 2'],
-    ],
-  },
-];
+const U = require('./universes');
+const LISTS = [...U.UNIVERSES, ...U.SEASONS.map(x => ({ ...x, season: true }))];
 
 // Julekalenderen: én film bag hver låge (fra jeres gamle "Jul"-playliste i Plex + tre andre julefilm derfra)
 const JUL = [
@@ -141,8 +37,13 @@ const JUL = [
   ['m', 'National Lampoon\'s Christmas Vacation', 1989, 'Christmas Vacation'],
 ];
 LISTS.push({ key: 'jul', name: 'Julekalender', hidden: true, items: JUL });
-// Lågernes placering på kalenderen (fast blanding, så tallene ikke står i rækkefølge)
-const DOOR_ORDER = [17, 5, 22, 11, 2, 19, 8, 14, 24, 1, 13, 20, 6, 9, 23, 3, 16, 10, 21, 4, 15, 12, 7, 18];
+// Børnenes julekalender: dagens afsnit af en dansk børnejulekalender (24 afsnit á ca. 24 min)
+const BORN = ['s', 'Ludvig & julemanden', 2011, 'Ludvig og Julemanden', 'Ludvig og julemanden'];
+const CALS = {
+  film: { name: 'Julekalender', state: 'jul', order: [17, 5, 22, 11, 2, 19, 8, 14, 24, 1, 13, 20, 6, 9, 23, 3, 16, 10, 21, 4, 15, 12, 7, 18] },
+  born: { name: 'Børnenes julekalender', state: 'julBorn', order: [3, 12, 7, 20, 1, 16, 9, 24, 14, 5, 18, 10, 22, 2, 13, 8, 19, 4, 23, 11, 6, 17, 21, 15] },
+};
+const danish = cat => /DANSK|DANSKE|^DK\b/i.test(String(cat || ''));
 
 // titler sammenlignes uden tegnsætning: "Star Wars: Episode IV – A New Hope" = "star wars episode iv a new hope"
 const key = s => C.norm(s).replace(/&/g, ' and ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
@@ -183,7 +84,7 @@ function create(P, DATA) {
   let busy = false;
   const tech = store.tech || (store.tech = {}); // id -> {b: bitrate, at}
 
-  function candidates(src, cats, it) {
+  function candidates(src, cats, it, da) {
     const [, title, year, ...rest] = it;
     const names = new Set([title, ...rest.filter(x => typeof x === 'string')].map(key));
     const out = [];
@@ -192,7 +93,7 @@ function create(P, DATA) {
       const y = +e[4];
       if (y && year && Math.abs(y - year) > 1) continue;
       const cat = cats.get(String(e[3])) || '';
-      const en = english(cat);
+      const en = da ? (danish(cat) ? 3 : 0) : english(cat);
       if (!en) continue;
       out.push({ e, cat, en, t: tier(en), k4: is4k(cat), sur: surround(cat), exact: y === year });
     }
@@ -221,8 +122,8 @@ function create(P, DATA) {
           let best = cs[0];
           if (movie) {
             // blandt de bedste udgaver (samme sprog-niveau) hentes bitrate, så den bedste kan vælges
-            const top = cs.filter(c => c.t === best.t).slice(0, 5);
-            for (const c of top) {
+            const top = cs.filter(c => c.t === best.t && c.sur === best.sur && c.k4 === best.k4).slice(0, 4);
+            for (const c of top.length > 1 || best.k4 ? top : []) {
               const t = tech[c.e[0]];
               if (!t || Date.now() - t.at > 30 * 86400e3) {
                 try { tech[c.e[0]] = { b: (await P.vodTech(c.e[0])).bitrate, at: Date.now() }; } catch { tech[c.e[0]] = { b: 0, at: Date.now() - 29 * 86400e3 }; }
@@ -249,16 +150,26 @@ function create(P, DATA) {
           const opt = it.find(x => x && typeof x === 'object') || {};
           items.push({ kind: movie ? 'movie' : 'series', id: e[0], name: opt.show || it[1], note: opt.note, year: it[2], img: e[2], ext: e[5], cat: best.cat, quality: best.k4 ? '4K' : 'HD', surround: best.sur, bitrate: best.b || 0, lang: best.en === 2.75 ? 'engelsk, danske undertekster' : best.en >= 2.5 ? 'engelsk' : best.en === 2 ? 'flere lydspor' : 'original m. undertekster', versions: cs.length });
         }
-        out.push({ key: L.key, name: L.name, note: L.note, items });
+        out.push({ key: L.key, name: L.name, group: L.group, order: L.order, note: L.note, season: !!L.season, items, covers: items.filter(x => !x.missing && x.img).slice(0, 4).map(x => x.img) });
+        // gem undervejs, så de første universer kan vises, mens resten findes
+        store.lists = out.concat((store.lists || []).filter(l => !out.some(o => o.key === l.key) && LISTS.some(x => x.key === l.key)));
+        save();
       }
-      store.lists = out; store.at = Date.now();
+      const bc = candidates(P.search.series, scats, BORN, true);
+      store.born = bc.length ? { id: bc[0].e[0], name: 'Ludvig & Julemanden', img: bc[0].e[2], cat: bc[0].cat } : null;
+      store.at = Date.now();
       save();
     } finally { busy = false; }
   }
 
-  function lists() {
-    if (!store.lists || Date.now() - store.at > 24 * 3600e3) { P.buildIndex(); resolve(); }
-    return { building: busy && !store.lists, lists: (store.lists || []).filter(l => l.key !== 'jul') };
+  /** all = også sæsontemaer uden for deres periode (til test). */
+  function lists(all) {
+    if (!store.lists || Date.now() - store.at > 24 * 3600e3 || (store.lists && store.lists.length < LISTS.length && !busy)) { P.buildIndex(); resolve(); }
+    const now = new Date();
+    const def = new Map(LISTS.map(l => [l.key, l]));
+    const ls = (store.lists || []).filter(l => l.key !== 'jul' && def.has(l.key) && (!l.season || all || def.get(l.key).when(now)))
+      .sort((a, b) => LISTS.indexOf(def.get(a.key)) - LISTS.indexOf(def.get(b.key)));
+    return { building: busy, groups: U.GROUPS, jul: U.julSeason(now), lists: ls };
   }
 
   // ---- julekalender: lågen kan åbnes fra sin dato (1.–24. december; resten af julen kan alle åbnes) ----
@@ -268,26 +179,39 @@ function create(P, DATA) {
     const open = m === 11 ? Math.min(24, day) : m === 0 && day <= 6 ? 24 : 0;
     return { year, today: m === 11 ? day : 0, open };
   }
-  function calendar(demo) {
+  async function calendar(cal, demo) {
+    const C2 = CALS[cal] || CALS.film;
     lists(); // sørger for, at filmene er fundet
     const { year, today, open } = julNow();
-    const st = P.state.jul && P.state.jul.year === year ? P.state.jul : { year, opened: [] };
-    const L = (store.lists || []).find(l => l.key === 'jul');
-    const doors = DOOR_ORDER.map(day => {
+    const st = P.state[C2.state] && P.state[C2.state].year === year ? P.state[C2.state] : { year, opened: [] };
+    let items = null, extra = {};
+    if (C2 === CALS.film) {
+      const L = (store.lists || []).find(l => l.key === 'jul');
+      if (L) items = L.items;
+    } else if (store.born) { // dagens afsnit
+      extra.series = store.born;
+      try {
+        const info = await P.vodInfo(P.SERIES, store.born.id);
+        const eps = Object.keys(info.seasons || {}).sort((a, b) => a - b).flatMap(k => info.seasons[k]);
+        items = eps.slice(0, 24).map((ep, i) => ({ kind: 'episode', seriesId: store.born.id, id: ep.id, ext: ep.ext, name: 'Afsnit ' + (i + 1) + ': ' + ep.title, show: store.born.name, img: ep.img || info.poster || store.born.img, poster: info.poster || store.born.img, durMs: ep.durMs, lang: 'dansk' }));
+      } catch { }
+    }
+    const doors = C2.order.map(day => {
       const opened = st.opened.includes(day) || !!demo;
-      const it = L && L.items[day - 1];
+      const it = items && items[day - 1];
       return { day, opened, canOpen: demo || day <= open, today: day === today, film: opened && it && !it.missing ? it : opened && it ? { missing: true, name: it.name, year: it.year } : null };
     });
-    return { year, today, open, ready: !!L, doors };
+    return { cal: cal === 'born' ? 'born' : 'film', name: C2.name, year, today, open, ready: !!items, doors, ...extra };
   }
-  function openDoor(day) {
+  async function openDoor(day, cal) {
+    const C2 = CALS[cal] || CALS.film;
     const { year, open } = julNow();
     day = +day;
     if (!(day >= 1 && day <= 24)) return { error: 'Den låge findes ikke.' };
-    if (day > open) return { error: open ? 'Lågen må først åbnes ' + day + '. december.' : 'Kalenderen åbner 1. december.' };
-    if (!P.state.jul || P.state.jul.year !== year) P.state.jul = { year, opened: [] };
-    if (!P.state.jul.opened.includes(day)) { P.state.jul.opened.push(day); P.save(); }
-    return calendar().doors.find(d => d.day === day);
+    if (day > open) return { error: open ? 'Gave ' + day + ' må først pakkes ud ' + day + '. december.' : 'Gaverne må pakkes ud fra 1. december.' };
+    if (!P.state[C2.state] || P.state[C2.state].year !== year) P.state[C2.state] = { year, opened: [] };
+    if (!P.state[C2.state].opened.includes(day)) { P.state[C2.state].opened.push(day); P.save(); }
+    return (await calendar(cal)).doors.find(d => d.day === day);
   }
 
   return { lists, resolve, calendar, openDoor };
