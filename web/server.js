@@ -477,7 +477,14 @@ const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://x');
   const p = u.pathname;
   const key = req.method + ' ' + p;
-  if (remote) { res.setHeader('Strict-Transport-Security', 'max-age=31536000'); Ops.sawRemote(); }
+  if (remote) {
+    // udefra kun over https: på http afviser browseren login-cookien (Secure), og man ryger i ring på login-siden
+    let scheme = String(req.headers['x-forwarded-proto'] || '');
+    try { scheme = JSON.parse(req.headers['cf-visitor'] || '{}').scheme || scheme; } catch { }
+    if (scheme === 'http') { res.writeHead(301, { Location: 'https://' + String(req.headers.host || '').replace(/[^\w.:-]/g, '') + req.url }); return res.end(); }
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+    Ops.sawRemote();
+  }
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'same-origin');
   try {
