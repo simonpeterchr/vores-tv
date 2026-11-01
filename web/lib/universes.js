@@ -1,6 +1,8 @@
 'use strict';
 // Universer og sæsontemaer til fanen "Univers". Hver titel: [type, titel, år, alternative titler …, {show, note}]  –  m = film, s = serie.
 // "order" fortæller, hvilken rækkefølge listen står i (historiens eller udgivelsernes).
+// "theme" er temamusikken: officielle koncertoptagelser på YouTube (DR SymfoniOrkestret, WDR Funkhausorchester m.fl.), der må afspilles indlejret.
+// Pladeselskabernes egne lydspor kan som regel ikke indlejres – de universer har billeder og trailere, men ingen musik.
 
 const GROUPS = ['Superhelte', 'Sci-fi', 'Fantasy & eventyr', 'Action', 'Familie & animation'];
 
@@ -102,7 +104,7 @@ const UNIVERSES = [
   },
   // ---------------- Sci-fi ----------------
   {
-    key: 'starwars', name: 'Star Wars', group: 'Sci-fi', order: 'historien',
+    key: 'starwars', theme: 'lTYI9nsj1iw', name: 'Star Wars', group: 'Sci-fi', order: 'historien',
     items: [
       ['s', 'Star Wars: The Acolyte', 2024, 'The Acolyte'],
       ['s', 'Star Wars: Tales of the Jedi', 2022, 'Tales of the Jedi'],
@@ -158,7 +160,7 @@ const UNIVERSES = [
     ],
   },
   {
-    key: 'terminator', name: 'Terminator', group: 'Sci-fi', order: 'udgivelserne',
+    key: 'terminator', theme: 'oCM1Epy0op0', name: 'Terminator', group: 'Sci-fi', order: 'udgivelserne',
     items: [
       ['m', 'The Terminator', 1984, 'Terminator'],
       ['m', 'Terminator 2: Judgment Day', 1991, 'Terminator 2'],
@@ -178,7 +180,7 @@ const UNIVERSES = [
     ],
   },
   {
-    key: 'bttf', name: 'Back to the Future', group: 'Sci-fi', order: 'udgivelserne',
+    key: 'bttf', theme: 'r_ZUEIV0apw', name: 'Back to the Future', group: 'Sci-fi', order: 'udgivelserne',
     items: [
       ['m', 'Back to the Future', 1985],
       ['m', 'Back to the Future Part II', 1989, 'Back to the Future 2'],
@@ -187,7 +189,7 @@ const UNIVERSES = [
   },
   // ---------------- Fantasy & eventyr ----------------
   {
-    key: 'potter', name: 'Harry Potter', group: 'Fantasy & eventyr', order: 'historien', note: 'Fantastiske skabninger foregår før Harry Potter.',
+    key: 'potter', theme: 'lbuvm30SSEc', name: 'Harry Potter', group: 'Fantasy & eventyr', order: 'historien', note: 'Fantastiske skabninger foregår før Harry Potter.',
     items: [
       ['m', 'Fantastic Beasts and Where to Find Them', 2016],
       ['m', 'Fantastic Beasts: The Crimes of Grindelwald', 2018],
@@ -203,7 +205,7 @@ const UNIVERSES = [
     ],
   },
   {
-    key: 'lotr', name: 'Ringenes Herre', group: 'Fantasy & eventyr', order: 'historien',
+    key: 'lotr', theme: 'f5cG_jwIENY', name: 'Ringenes Herre', group: 'Fantasy & eventyr', order: 'historien',
     items: [
       ['s', 'The Lord of the Rings: The Rings of Power', 2022, 'The Rings of Power'],
       ['m', 'The Lord of the Rings: The War of the Rohirrim', 2024, 'The War of the Rohirrim'],
@@ -216,7 +218,7 @@ const UNIVERSES = [
     ],
   },
   {
-    key: 'pirates', name: 'Pirates of the Caribbean', group: 'Fantasy & eventyr', order: 'udgivelserne',
+    key: 'pirates', theme: 'jtGUQFky0KI', name: 'Pirates of the Caribbean', group: 'Fantasy & eventyr', order: 'udgivelserne',
     items: [
       ['m', 'Pirates of the Caribbean: The Curse of the Black Pearl', 2003],
       ['m', 'Pirates of the Caribbean: Dead Man\'s Chest', 2006],
@@ -226,7 +228,7 @@ const UNIVERSES = [
     ],
   },
   {
-    key: 'indy', name: 'Indiana Jones', group: 'Fantasy & eventyr', order: 'historien',
+    key: 'indy', theme: 'Iqr4n7zPK_Y', name: 'Indiana Jones', group: 'Fantasy & eventyr', order: 'historien',
     items: [
       ['m', 'Indiana Jones and the Temple of Doom', 1984],
       ['m', 'Raiders of the Lost Ark', 1981, 'Indiana Jones and the Raiders of the Lost Ark'],
@@ -236,7 +238,7 @@ const UNIVERSES = [
     ],
   },
   {
-    key: 'jurassic', name: 'Jurassic Park & World', group: 'Fantasy & eventyr', order: 'udgivelserne',
+    key: 'jurassic', theme: '2dZXmwWO42U', name: 'Jurassic Park & World', group: 'Fantasy & eventyr', order: 'udgivelserne',
     items: [
       ['m', 'Jurassic Park', 1993],
       ['m', 'The Lost World: Jurassic Park', 1997],
@@ -249,7 +251,7 @@ const UNIVERSES = [
   },
   // ---------------- Action ----------------
   {
-    key: 'bond', name: 'James Bond 007', group: 'Action', order: 'udgivelserne',
+    key: 'bond', theme: 'Xu2tpBrY6GI', name: 'James Bond 007', group: 'Action', order: 'udgivelserne',
     items: [
       ['m', 'Dr. No', 1962], ['m', 'From Russia with Love', 1963], ['m', 'Goldfinger', 1964], ['m', 'Thunderball', 1965],
       ['m', 'You Only Live Twice', 1967], ['m', 'On Her Majesty\'s Secret Service', 1969], ['m', 'Diamonds Are Forever', 1971],
@@ -261,7 +263,7 @@ const UNIVERSES = [
     ],
   },
   {
-    key: 'mi', name: 'Mission: Impossible', group: 'Action', order: 'udgivelserne',
+    key: 'mi', theme: '3OSGPUbo4Tc', name: 'Mission: Impossible', group: 'Action', order: 'udgivelserne',
     items: [
       ['m', 'Mission: Impossible', 1996],
       ['m', 'Mission: Impossible 2', 2000, 'Mission: Impossible II', 'M:I-2'],
@@ -312,7 +314,7 @@ const UNIVERSES = [
   },
   // ---------------- Familie & animation ----------------
   {
-    key: 'pixar', name: 'Pixar', group: 'Familie & animation', order: 'udgivelserne',
+    key: 'pixar', theme: 'SK7dyBEjmPM', name: 'Pixar', group: 'Familie & animation', order: 'udgivelserne',
     items: [
       ['m', 'Toy Story', 1995], ['m', 'A Bug\'s Life', 1998], ['m', 'Toy Story 2', 1999], ['m', 'Monsters, Inc.', 2001, 'Monsters Inc'],
       ['m', 'Finding Nemo', 2003], ['m', 'The Incredibles', 2004], ['m', 'Cars', 2006], ['m', 'Ratatouille', 2007],

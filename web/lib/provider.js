@@ -401,6 +401,51 @@ async function vodTech(id) {
   return { id: String(id), bitrate: +info.bitrate || 0, width: +v.width || 0, height: +v.height || 0, codec: v.codec_name || '', lang: String(tags.language || tags.LANGUAGE || '').toLowerCase(), raw: process.env.VT_RAW ? info : undefined };
 }
 
+/**
+ * Lydsporenes sprog i en mkv-film (læser kun de første 256 KB, hvor sporlisten står). Fx ['eng', 'dan'].
+ * null = kunne ikke afgøres (mp4, fejl). Kaldes kun, når ingen ser noget (udbyderen tillader én forbindelse).
+ */
+async function audioLangs(id, ext) {
+  if (!/^mkv$/i.test(ext || '')) return null;
+  const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 15000);
+  try {
+    const r = await fetch(vodUrl(MOVIE, id, ext), { headers: { 'User-Agent': UA, Range: 'bytes=0-262143' }, signal: ac.signal });
+    if (!r.ok) return null;
+    const chunks = []; let n = 0;
+    for await (const c of r.body) { chunks.push(c); n += c.length; if (n >= 262144) break; }
+    ac.abort();
+    return mkvAudioLangs(Buffer.concat(chunks));
+  } catch { return null; } finally { clearTimeout(timer); }
+}
+// minimal EBML-læser: Tracks (1654AE6B) → TrackEntry (AE) → TrackType (83, 2 = lyd) og Language (22B59C) / LanguageBCP47 (22B59D)
+function mkvAudioLangs(b) {
+  const vint = (i, keep) => { const f = b[i]; let len = 1, m = 0x80; while (len <= 8 && !(f & m)) { len++; m >>= 1; } if (len > 8 || i + len > b.length) return null; let v = keep ? f : f & (m - 1); for (let k = 1; k < len; k++) v = v * 256 + b[i + k]; return { v, len }; };
+  // Tracks-id'et står også i indholdsfortegnelsen (SeekHead); den rigtige sporliste starter med en TrackEntry (AE), evt. efter en kontrolsum
+  const T = Buffer.from([0x16, 0x54, 0xAE, 0x6B]);
+  let at = -1, sz = null;
+  for (let p = b.indexOf(T); p >= 0; p = b.indexOf(T, p + 1)) { const z = vint(p + 4); if (z && [0xAE, 0xBF, 0xEC].includes(b[p + 4 + z.len])) { at = p; sz = z; break; } } // BF = CRC-32, EC = tom plads
+  if (at < 0) return null;
+  let i = at + 4 + sz.len; const end = Math.min(b.length, i + sz.v), out = [];
+  while (i < end) {
+    const id = vint(i, true); if (!id) break; const s2 = vint(i + id.len); if (!s2) break;
+    const body = i + id.len + s2.len;
+    if (id.v === 0xAE) {
+      let j = body, type = 0, lang = 'eng', bcp = null; const e2 = Math.min(end, body + s2.v);
+      while (j < e2) {
+        const cid = vint(j, true); if (!cid) break; const cs = vint(j + cid.len); if (!cs) break;
+        const cb = j + cid.len + cs.len;
+        if (cid.v === 0x83) type = b[cb];
+        else if (cid.v === 0x22B59C) lang = b.toString('latin1', cb, cb + cs.v).replace(/\0/g, '');
+        else if (cid.v === 0x22B59D) bcp = b.toString('latin1', cb, cb + cs.v).replace(/\0/g, '');
+        j = cb + cs.v;
+      }
+      if (type === 2) out.push((bcp || lang).toLowerCase().slice(0, 3).replace(/^da$/, 'dan').replace(/^en$/, 'eng'));
+    }
+    i = body + s2.v;
+  }
+  return out.length ? out : null;
+}
+
 async function vodInfo(kind, id) {
   const key = kind + '|' + id;
   const hit = vod.info.get(key);
@@ -624,7 +669,7 @@ return {
   DATA, state, save, ok, login, logout, health, healthCheck, account, vodName, 
   catalog, loadCatalog, inCategory, separator, shownGroups, toggleGroup, favorites, toggleFav, moveFav, seen, prefixes,
   epgGet, epgWant, epgPending, MOVIE, SERIES, vod, vodCategories, vodInCategory, vodShownGroups, vodToggleGroup, vodInfo,
-  vodTech, saveResume, continueList, sync, search, buildIndex, evOf, searchChannels, searchPrograms, searchVod, warmEpg, epgChannels,
+  vodTech, audioLangs, mkvAudioLangs, saveResume, continueList, sync, search, buildIndex, evOf, searchChannels, searchPrograms, searchVod, warmEpg, epgChannels,
   liveUrl, vodUrl, json, text, cred: () => cred, UA, friendly, parseCred, parseAlts,
 };
 }

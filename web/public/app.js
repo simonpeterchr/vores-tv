@@ -732,21 +732,17 @@ Views.vod = async (g, args, tab) => {
 };
 
 // ---- Univers: sæsontemaer øverst (julekalenderne, Halloween …) og universer i rækkefølge ----
-const uniTags = x => [x.kind === 'series' ? 'Serie' : '', x.quality === '4K' ? '4K' : '', x.surround ? '5.1' : '', x.lang === 'engelsk, danske undertekster' ? 'DK-tekst' : x.lang && x.lang !== 'engelsk' ? 'm. undertekster' : ''].filter(Boolean).join(' · ');
+const uniTags = x => [x.kind === 'series' ? 'Serie' : '', x.quality === '4K' ? '4K' : '', x.surround ? '5.1' : '', x.lang === 'dansk tale' ? 'Dansk tale' : x.lang === 'engelsk, danske undertekster' ? 'DK-tekst' : x.lang && x.lang !== 'engelsk' ? 'm. undertekster' : ''].filter(Boolean).join(' · ');
 const uniCard = (href, name, sub, covers, cls = '') => `<a class="uni ${cls}" href="${href}"><div class="covers">${(covers || []).slice(0, 4).map(c => `<img src="${esc(c)}" alt="" loading="lazy" onerror="this.remove()">`).join('')}</div><div class="t"><b>${esc(name)}</b><small>${esc(sub)}</small></div></a>`;
 Views.univers = async (g, [key]) => {
   for (let t = 0; t < 60 && g === gen; t++) {
     const d = await api('/api/vod/collections' + (key === 'alle' ? '?all=1' : ''));
     if (g !== gen) return;
     if (key && key !== 'alle') {
-      const L = d.lists.find(l => l.key === key);
+      const L = await api('/api/vod/universe?key=' + encodeURIComponent(key)).catch(() => null);
+      if (g !== gen) return;
       if (!L) { if (d.building) { view.innerHTML = '<div class="empty">Finder titlerne …</div>'; await sleep(5000); continue; } view.innerHTML = '<div class="empty">Det univers findes ikke (eller er ikke i sæson).</div>'; return; }
-      const have = L.items.filter(x => !x.missing), miss = L.items.length - have.length;
-      let n = 0;
-      view.innerHTML = `<div class="pills"><a class="pill" href="#/univers">← Univers</a></div><h1 class="uni-h">${esc(L.name)}</h1>
-        <p class="muted">${esc(L.order === 'historien' ? 'I den rækkefølge, historien foregår.' : L.order === 'udgivelserne' ? 'I den rækkefølge, de kom ud.' : L.order === 'nyeste først' ? 'Nyeste først.' : '')} ${esc(L.note || '')}${miss ? ' · ' + miss + ' findes ikke hos udbyderen' : ''}</p>
-        <div class="grid uni-grid">${L.items.map(x => { n++; return x.missing ? '' : posterCard({ kind: x.kind, id: x.id, name: n + '. ' + (x.name), img: x.img, sub: (x.note || x.year) + (uniTags(x) ? ' · ' + uniTags(x) : '') }, x.kind); }).join('')}</div>`;
-      return;
+      return drawUniverse(g, L);
     }
     const by = {};
     for (const L of d.lists.filter(l => !l.season)) (by[L.group] = by[L.group] || []).push(L);
@@ -759,6 +755,59 @@ Views.univers = async (g, [key]) => {
     await sleep(15000);
   }
 };
+
+// Ét univers: baggrundsbilleder fra filmene, temamusik (officiel udgivelse på YouTube, indlejret) og trailere som klip
+const ytEmbed = (id, extra = '') => `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&playsinline=1&rel=0&modestbranding=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}${extra}`;
+const ytCmd = (frame, func, args = []) => { try { frame.contentWindow.postMessage(JSON.stringify({ event: 'command', func, args }), '*'); } catch { } };
+const musicOn = () => { try { return localStorage.getItem('uniMusic') !== 'off'; } catch { return true; } };
+function drawUniverse(g, L) {
+  const have = L.items.filter(x => !x.missing), miss = L.items.length - have.length;
+  const bds = (L.media && L.media.backdrops.length ? L.media.backdrops : L.covers || []).slice(0, 12);
+  const firstX = have[0];
+  let n = 0;
+  view.innerHTML = `<section class="uhero">${bds.map((b, i) => `<img src="${esc(b)}" alt="" class="${i ? '' : 'on'}" ${i ? 'loading="lazy"' : ''}>`).join('')}<div class="shade"></div>
+      <div class="z"><a class="pill" href="#/univers">← Univers</a><h1>${esc(L.name)}</h1>
+      <p>${esc(L.order === 'historien' ? 'I den rækkefølge, historien foregår.' : L.order === 'udgivelserne' ? 'I den rækkefølge, de kom ud.' : L.order === 'nyeste først' ? 'Nyeste først.' : '')} ${esc(L.note || '')} · ${have.length} titler${miss ? ' · ' + miss + ' findes ikke hos udbyderen' : ''}</p>
+      <div class="acts">${firstX ? `<a class="btn" href="#/titel/${firstX.kind === 'series' ? 'series' : 'movie'}/${encodeURIComponent(firstX.id)}">▶ Start med nr. 1</a>` : ''}${L.theme ? `<button class="btn ghost" id="umusic"></button>` : ''}</div></div>
+      ${L.theme ? `<iframe id="utheme" class="hidden-player" allow="autoplay; encrypted-media" referrerpolicy="strict-origin-when-cross-origin" title="Temamusik" src="${musicOn() ? ytEmbed(L.theme, '&loop=1&playlist=' + L.theme) : 'about:blank'}"></iframe>` : ''}</section>
+    ${L.media && L.media.trailers.length ? `<h2>Klip <small>officielle trailere</small></h2><div class="row">${L.media.trailers.map(t => `<button class="clip" data-yt="${esc(t.id)}"><div class="img"><img src="https://i.ytimg.com/vi/${esc(t.id)}/hqdefault.jpg" alt="" loading="lazy"><span class="play">▶</span></div><div class="n">${esc(t.name)}</div><div class="s">${esc(t.year || '')}</div></button>`).join('')}</div>` : L.mediaBuilding ? '<p class="muted">Henter billeder og klip …</p>' : ''}
+    <h2>Alle titler</h2><div class="grid uni-grid">${L.items.map(x => { n++; return x.missing ? '' : posterCard({ kind: x.kind, id: x.id, name: n + '. ' + x.name, img: x.img, sub: (x.note || x.year) + (uniTags(x) ? ' · ' + uniTags(x) : '') }, x.kind); }).join('')}</div>`;
+  // baggrundsbillederne glider langsomt over i hinanden
+  const imgs = $$('.uhero img');
+  if (imgs.length > 1) { let i = 0; const tick = () => { if (g !== gen || !imgs[0].isConnected) return; imgs[i].classList.remove('on'); i = (i + 1) % imgs.length; imgs[i].classList.add('on'); setTimeout(tick, 7000); }; setTimeout(tick, 7000); }
+  // temamusikken: til/fra huskes; skrues langsomt op
+  const fr = $('#utheme'), mb = $('#umusic');
+  const label = () => { if (mb) mb.textContent = musicOn() ? '🔊 Tema' : '🔇 Tema'; };
+  label();
+  if (fr && musicOn()) fr.onload = () => { ytCmd(fr, 'setVolume', [0]); let v = 0; const up = setInterval(() => { v += 5; ytCmd(fr, 'setVolume', [v]); if (v >= 60 || !fr.isConnected) clearInterval(up); }, 250); };
+  if (mb) mb.onclick = () => {
+    const on = !musicOn();
+    try { localStorage.setItem('uniMusic', on ? 'on' : 'off'); } catch { }
+    if (on && fr.src === 'about:blank') fr.src = ytEmbed(L.theme, '&loop=1&playlist=' + L.theme);
+    else ytCmd(fr, on ? 'playVideo' : 'pauseVideo');
+    label();
+  };
+  // klip: afspilles i et vindue; musikken holder pause imens
+  $$('.clip').forEach(b => b.onclick = () => {
+    if (fr) ytCmd(fr, 'pauseVideo');
+    const m = document.createElement('div');
+    m.className = 'clipbox';
+    m.innerHTML = `<div class="frame"><iframe allow="autoplay; encrypted-media; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" src="${ytEmbed(b.dataset.yt)}"></iframe><button class="p-btn x" aria-label="Luk">✕</button></div>`;
+    const close = () => { m.remove(); if (fr && musicOn()) ytCmd(fr, 'playVideo'); removeEventListener('keydown', esc1); };
+    const esc1 = e => { if (e.key === 'Escape') close(); };
+    m.onclick = e => { if (e.target === m || e.target.closest('.x')) close(); };
+    addEventListener('keydown', esc1);
+    document.body.appendChild(m);
+  });
+  // billeder og klip hentes første gang i baggrunden – vis dem, når de er klar
+  const poll = async () => {
+    if (g !== gen) return;
+    const L2 = await api('/api/vod/universe?key=' + encodeURIComponent(L.key)).catch(() => null);
+    if (g !== gen || !L2) return;
+    if (L2.mediaBuilding) setTimeout(poll, 8000); else drawUniverse(g, L2);
+  };
+  if (L.mediaBuilding) setTimeout(poll, 8000);
+}
 
 // ---- Julekalender: én julefilm pakket ind bag hver dato; gaven kan pakkes ud fra sin dag ----
 const PAPER = ['#b3262f', '#1f6f4a', '#c8a14a', '#2a4f8f', '#8e1b24', '#3f7d3a', '#a33a6b', '#245e73'];

@@ -124,6 +124,7 @@ const routes = {
 
   // film og serier
   'GET /api/vod/collections': (req, res, q) => ({ acct: acctOf(P), ...Co.lists(q.get('all') === '1') }),
+  'GET /api/vod/universe': (req, res, q) => { const u = Co.universe(q.get('key')); return u ? { acct: acctOf(P), ...u } : send(res, 404, { error: 'Det univers findes ikke.' }); },
   'GET /api/jul': async (req, res, q) => ({ acct: acctOf(P), ...await Co.calendar(q.get('cal'), q.get('demo') === '1') }),
   'POST /api/jul/open': async (req, res, q, b) => { const r = await Co.openDoor(b.day, b.cal); return r.error ? send(res, 400, r) : r; },
   'GET /api/vod/groups': (req, res, q) => {
@@ -357,7 +358,7 @@ function ctxFor(u) {
   if (!c) {
     const P = X.create(Users.dir(u.name));
     const S = Object.assign({}, SH, SH.forUser(P));
-    c = { P, S, Co: Coll.create(P, Users.dir(u.name)) };
+    c = { P, S, Co: Coll.create(P, Users.dir(u.name), { canProbe: () => !Ops.activeViewers().some(v => v.user === u.name) }) };
     ctxs.set(u.name, c);
     P.loadCatalog(false);
   }

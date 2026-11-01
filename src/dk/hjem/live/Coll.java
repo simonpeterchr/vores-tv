@@ -15,7 +15,7 @@ import java.util.List;
 
 /** Universer og sæsontemaer fra Vores TV-serveren (Marvel, Star Wars, Halloween …) – bedste udgave af hver titel, i rækkefølge. */
 final class Coll {
-    static final class Item { String kind, id, name, img, ext, sub; int n; }
+    static final class Item { String kind, id, name, img, ext, sub, audio; int n; }
     static final class List1 { String key, name, group, order, note; boolean season; int missing; List<String> covers = new ArrayList<>(); List<Item> items = new ArrayList<>(); }
 
     static volatile List<List1> lists = new ArrayList<>();
@@ -62,7 +62,7 @@ final class Coll {
                         if (x.optBoolean("missing")) { L.missing++; continue; }
                         Item e = new Item();
                         e.n = j + 1; e.kind = x.optString("kind"); e.id = x.optString("id"); e.name = x.optString("name");
-                        e.img = x.optString("img", null); e.ext = x.optString("ext", null);
+                        e.img = x.optString("img", null); e.ext = x.optString("ext", null); e.audio = x.optString("audio", null);
                         List<String> tags = new ArrayList<>();
                         String note = x.optString("note", "");
                         tags.add(note.isEmpty() ? String.valueOf(x.optInt("year")) : note);
@@ -70,7 +70,8 @@ final class Coll {
                         if ("4K".equals(x.optString("quality"))) tags.add("4K");
                         if (x.optBoolean("surround")) tags.add("5.1");
                         String lang = x.optString("lang");
-                        if (lang.startsWith("engelsk, danske")) tags.add("DK-tekst");
+                        if ("dansk tale".equals(lang)) tags.add("Dansk tale");
+                        else if (lang.startsWith("engelsk, danske")) tags.add("DK-tekst");
                         else if (!"engelsk".equals(lang)) tags.add("m. undertekster");
                         e.sub = android.text.TextUtils.join("  ·  ", tags);
                         L.items.add(e);
@@ -84,6 +85,12 @@ final class Coll {
             } catch (Exception ignored) {
             } finally { loading = false; }
         }, "collections").start();
+    }
+
+    /** Husk filmens foretrukne lydspor (dansk for børnefilm), så afspilleren vælger det. */
+    static void rememberAudio(Context c, Item x) {
+        if (x.audio != null && !x.audio.isEmpty() && Vod.MOVIE.equals(x.kind))
+            c.getSharedPreferences("audio", Context.MODE_PRIVATE).edit().putString(x.id, x.audio.equals("dan") ? "da" : x.audio).apply();
     }
 
     static List1 find(String key) {

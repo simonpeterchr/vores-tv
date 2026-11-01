@@ -49,7 +49,7 @@ const danish = cat => /DANSK|DANSKE|^DK\b/i.test(String(cat || ''));
 const key = s => C.norm(s).replace(/&/g, ' and ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 // katalogets navne har ofte "(2024) (US)" bagved eller "4K-ES-HDR - " foran
 const keys = s => {
-  const base = String(s || '').replace(/\s*\((\d{4}|[A-Z]{2,3})\)/g, '');
+  const base = String(s || '').replace(/\s*\((\d{4}|[A-Z]{2,3})\)/g, '').replace(/^(?:4K\s*)?-?\s*SC\s*-\s*/i, ''); // "4K -SC- Frozen" = skandinavisk udgave
   const out = [key(base)];
   const m = /^[^:]{1,20}?\s+-\s+(.+)$/.exec(base);
   if (m) out.push(key(m[1]));
@@ -76,7 +76,8 @@ const is4k = cat => /4K|⁴ᴷ|3840|2160|UHD/i.test(String(cat || ''));
 const surround = cat => /DOLBY AUDIO|ᴰᴼᴸᴮʸ ᴬᵁᴰᴵᴼ|ATMOS/i.test(String(cat || '')) || (is4k(cat) && /NETFLIX|DISNEY\+|APPLE\+|AMAZON|HBO|PARAMOUNT/i.test(String(cat || '')));
 const tier = en => en >= 2.5 ? 3 : en >= 2 ? 2 : en >= 1 ? 1 : 0;
 
-function create(P, DATA) {
+function create(P, DATA, opts = {}) {
+  const canProbe = opts.canProbe || (() => true); // lydsporene tjekkes kun, når ingen ser noget
   const FILE = path.join(DATA, 'cache', 'collections.json');
   let store = {};
   try { store = JSON.parse(fs.readFileSync(FILE, 'utf8')); } catch { }
@@ -84,7 +85,7 @@ function create(P, DATA) {
   let busy = false;
   const tech = store.tech || (store.tech = {}); // id -> {b: bitrate, at}
 
-  function candidates(src, cats, it, da) {
+  function candidates(src, cats, it, da, dub) {
     const [, title, year, ...rest] = it;
     const names = new Set([title, ...rest.filter(x => typeof x === 'string')].map(key));
     const out = [];
@@ -93,16 +94,37 @@ function create(P, DATA) {
       const y = +e[4];
       if (y && year && Math.abs(y - year) > 1) continue;
       const cat = cats.get(String(e[3])) || '';
-      const en = da ? (danish(cat) ? 3 : 0) : english(cat);
-      if (!en) continue;
-      out.push({ e, cat, en, t: tier(en), k4: is4k(cat), sur: surround(cat), exact: y === year });
+      let en = da ? (danish(cat) ? 3 : 0) : english(cat);
+      if (!da && /(^|\s)-?SC-?\s/i.test(e[1])) en = Math.max(en, 2.75); // SC-udgaver: engelsk tale, danske undertekster
+      if (!en && !(dub && /NORDIC|BARN|BØRN|KIDS/i.test(cat))) continue;
+      out.push({ e, cat, en, t: tier(en), k4: is4k(cat), sur: surround(cat), exact: y === year, dk: danish(cat) });
     }
     // findes udgaver med det rigtige år, droppes dem uden år (fx "The Grinch" kan være både 2000- og 2018-filmen)
     const sure = out.some(c => c.exact) ? out.filter(c => c.exact || +c.e[4]) : out;
     return sure.sort(rank);
   }
   // bedst først: mest engelsk, så surround-lyd, så 4K, så højeste bitrate
-  const rank = (a, b) => b.t - a.t || b.sur - a.sur || b.k4 - a.k4 || (b.b || 0) - (a.b || 0) || b.en - a.en || b.exact - a.exact;
+  const rank = (a, b) => (b.dan || 0) - (a.dan || 0) || b.t - a.t || b.sur - a.sur || b.k4 - a.k4 || (b.b || 0) - (a.b || 0) || b.en - a.en || b.exact - a.exact;
+
+  /** Hvilke af kandidaterne har dansk tale? Danske grupper antages at have det; nordiske/børne-mkv'er tjekkes i filen (gemmes 90 dage). */
+  async function danishAudio(cs) {
+    let probes = 0;
+    for (const c of cs) {
+      if (c.dk) { c.dan = 1; continue; }
+      if (!/NORDIC|BARN|BØRN|KIDS|SC/i.test(c.cat + ' ' + c.e[1]) || !/^mkv$/i.test(c.e[5] || '')) continue;
+      const t = tech[c.e[0]] || (tech[c.e[0]] = { b: 0, at: 0 });
+      if (!t.l || Date.now() - t.la > 90 * 86400e3) {
+        if (probes >= 4 || !canProbe()) continue; // højst 4 tjek pr. titel, og aldrig mens nogen ser noget
+        probes++;
+        const l = await P.audioLangs(c.e[0], c.e[5]);
+        await new Promise(r => setTimeout(r, 1500));
+        if (!l) continue;
+        t.l = l; t.la = Date.now();
+      }
+      if (t.l.includes('dan')) c.dan = 1;
+    }
+    cs.sort(rank);
+  }
 
   /** Bygger samlingerne (henter bitrate for de bedste kandidater, langsomt for ikke at belaste udbyderen). */
   async function resolve() {
@@ -117,12 +139,14 @@ function create(P, DATA) {
         const items = [];
         for (const it of L.items) {
           const movie = it[0] === 'm';
-          const cs = candidates(movie ? P.search.movies : P.search.series, movie ? mcats : scats, it);
+          const dub = L.group === 'Familie & animation'; // børnene: dansk tale først
+          const cs = candidates(movie ? P.search.movies : P.search.series, movie ? mcats : scats, it, false, dub);
+          if (dub) await danishAudio(cs);
           if (!cs.length) { items.push({ missing: true, name: (it.find(x => x && typeof x === 'object') || {}).show || it[1], year: it[2], kind: movie ? 'movie' : 'series' }); continue; }
           let best = cs[0];
           if (movie) {
             // blandt de bedste udgaver (samme sprog-niveau) hentes bitrate, så den bedste kan vælges
-            const top = cs.filter(c => c.t === best.t && c.sur === best.sur && c.k4 === best.k4).slice(0, 4);
+            const top = cs.filter(c => (c.dan || 0) === (best.dan || 0) && c.t === best.t && c.sur === best.sur && c.k4 === best.k4).slice(0, 4);
             for (const c of top.length > 1 || best.k4 ? top : []) {
               const t = tech[c.e[0]];
               if (!t || Date.now() - t.at > 30 * 86400e3) {
@@ -134,7 +158,7 @@ function create(P, DATA) {
             }
             best = top.sort(rank)[0] || best;
             // en meget lav bitrate (fx 600 kbit/s) er for ringe: så hellere originalsproget med undertekster i langt bedre kvalitet
-            if (best.b && best.b < 2000) {
+            if (!best.dan && best.b && best.b < 2000) {
               for (const c of cs.filter(c => c.t === 1).slice(0, 3)) {
                 const t = tech[c.e[0]];
                 if (!t || Date.now() - t.at > 30 * 86400e3) {
@@ -148,7 +172,7 @@ function create(P, DATA) {
           }
           const e = best.e;
           const opt = it.find(x => x && typeof x === 'object') || {};
-          items.push({ kind: movie ? 'movie' : 'series', id: e[0], name: opt.show || it[1], note: opt.note, year: it[2], img: e[2], ext: e[5], cat: best.cat, quality: best.k4 ? '4K' : 'HD', surround: best.sur, bitrate: best.b || 0, lang: best.en === 2.75 ? 'engelsk, danske undertekster' : best.en >= 2.5 ? 'engelsk' : best.en === 2 ? 'flere lydspor' : 'original m. undertekster', versions: cs.length });
+          items.push({ kind: movie ? 'movie' : 'series', id: e[0], name: opt.show || it[1], note: opt.note, year: it[2], img: e[2], ext: e[5], cat: best.cat, quality: best.k4 ? '4K' : 'HD', surround: best.sur, bitrate: best.b || 0, audio: best.dan ? 'dan' : undefined, lang: best.dan ? 'dansk tale' : best.en === 2.75 ? 'engelsk, danske undertekster' : best.en >= 2.5 ? 'engelsk' : best.en === 2 ? 'flere lydspor' : 'original m. undertekster', versions: cs.length });
         }
         out.push({ key: L.key, name: L.name, group: L.group, order: L.order, note: L.note, season: !!L.season, items, covers: items.filter(x => !x.missing && x.img).slice(0, 4).map(x => x.img) });
         // gem undervejs, så de første universer kan vises, mens resten findes
@@ -159,7 +183,41 @@ function create(P, DATA) {
       store.born = bc.length ? { id: bc[0].e[0], name: 'Ludvig & Julemanden', img: bc[0].e[2], cat: bc[0].cat } : null;
       store.at = Date.now();
       save();
+      // billeder og klip til alle universer i baggrunden, så de er klar, når man går ind i dem
+      (async () => { for (const L of store.lists) if (!media[L.key] || Date.now() - media[L.key].at > 30 * 86400e3) await buildMedia(L); })();
     } finally { busy = false; }
+  }
+
+  // ---- billeder og klip til et univers: baggrundsbilleder og officielle trailere fra filmenes oplysninger ----
+  const media = store.media || (store.media = {});
+  const mbusy = new Set();
+  async function buildMedia(L) {
+    if (mbusy.has(L.key)) return;
+    mbusy.add(L.key);
+    try {
+      const movies = L.items.filter(x => !x.missing && x.kind === 'movie');
+      const pick = movies.length <= 12 ? movies : Array.from({ length: 12 }, (_, i) => movies[Math.floor(i * movies.length / 12)]); // spredt over hele tidslinjen
+      const bd = [], tr = [];
+      for (const x of pick) {
+        try {
+          const v = await P.vodInfo(P.MOVIE, x.id);
+          if (v.backdrop && /^https:\/\/image\.tmdb\.org\//.test(v.backdrop)) bd.push(v.backdrop);
+          if (v.trailer && /^[\w-]{11}$/.test(v.trailer)) tr.push({ id: v.trailer, name: x.name, year: x.year });
+        } catch { }
+        await new Promise(r => setTimeout(r, 1200));
+      }
+      media[L.key] = { at: Date.now(), bd, tr };
+      save();
+    } finally { mbusy.delete(L.key); }
+  }
+  /** Ét univers med billeder, klip og temamusik (bygges første gang i baggrunden). */
+  function universe(key) {
+    const L = lists(true).lists.find(l => l.key === key);
+    if (!L) return null;
+    const m = media[key];
+    if (!m || Date.now() - m.at > 30 * 86400e3) buildMedia(L);
+    const def = LISTS.find(l => l.key === key) || {};
+    return { ...L, theme: def.theme || null, media: m ? { backdrops: m.bd, trailers: m.tr } : null, mediaBuilding: mbusy.has(key) };
   }
 
   /** all = også sæsontemaer uden for deres periode (til test). */
@@ -214,7 +272,7 @@ function create(P, DATA) {
     return (await calendar(cal)).doors.find(d => d.day === day);
   }
 
-  return { lists, resolve, calendar, openDoor };
+  return { lists, universe, resolve, calendar, openDoor };
 }
 
 module.exports = { create, LISTS, english, key, keys, surround };

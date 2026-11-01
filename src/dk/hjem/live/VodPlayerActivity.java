@@ -204,6 +204,9 @@ public class VodPlayerActivity extends Activity {
         Xtream x = new Xtream(cr);
         String url = Vod.MOVIE.equals(kind) ? x.vodUrl(Integer.parseInt(ids[i]), exts[i]) : x.episodeUrl(ids[i], exts[i]);
         player.setMediaItem(MediaItem.fromUri(url));
+        // børnefilm fra Univers med dansk tale: vælg det danske lydspor (ellers filmens eget standardspor)
+        String lang = getSharedPreferences("audio", MODE_PRIVATE).getString(ids[i], null);
+        player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon().setPreferredAudioLanguage(lang).build());
         Vod.Resume r = useResume ? Vod.resume(this, key(i)) : null;
         if (r != null && r.pos > 60_000) player.seekTo(r.pos);
         player.prepare();
